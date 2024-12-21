@@ -257,46 +257,49 @@ end
 #=
 Each entry is assigned a level based on its power.
 We have at most min(n, 2048) levels.
-# Maintain a distribution over the top 64 levels and ignore any lower (or maybe the top log(n) levels and treat the rest as a single level).
+# Maintain a distribution over the top N levels and ignore any lower
+(or maybe the top log(n) levels and treat the rest as a single level).
 For each level, maintain a distribution over the elements of that level
-Also, maintain a distribution over the 64 most significant levels.
+Also, maintain a distribution over the N most significant levels.
 To facilitate updating, but unused during sampling, also maintain,
 A linked list set (supports push!, delete!, in, findnext, and findprev) of levels
-A pointer to the least significant tracked level (-1075 if there are fewer than 64 levels)
+A pointer to the least significant tracked level (-1075 if there are fewer than N levels)
 A vector that maps elements (integers) to their level and index in the level
 
 To sample,
-draw from the distribution over the top 64 levels and then
+draw from the distribution over the top N levels and then
 draw from the distribution over the elements of that level.
 
 To add a new element at a given weight,
 determine the level of that weight,
 create a new level if needed,
 add the element to the distribution of that level,
-and update the distribution over the top 64 levels if needed.
+and update the distribution over the top N levels if needed.
 Log the location of the new element.
 
 To create a new level,
 Push the level into the linked list set of levels.
 If the level is below the least significant tracked level, that's all.
-Otherwise, update the least significant tracked level and evict an element from the distribution over the top 64 levels if necessary
+Otherwise, update the least significant tracked level and evict an element
+from the distribution over the top N levels if necessary
 
 To remove an element,
 Lookup the location of the element
 Remove the element from the distribution of its level
 If the level is now empty, remove the level from the linked list set of levels
 If the level is below the least significant tracked level, that's all.
-Otherwise, update the least significant tracked level and add an element to the distribution over the top 64 levels if possible
+Otherwise, update the least significant tracked level and add an element to the
+distribution over the top N levels if possible
 =#
 
-struct NestedSampler5
+struct NestedSampler5{N}
     # Used in sampling
-    distribution_over_levels::SelectionSampler4{64} # A distribution over 1:64
+    distribution_over_levels::SelectionSampler4{N} # A distribution over 1:N
     sampled_levels::Vector{RejectionSampler3} # The top up to 64 levels TODO: consider making an MVector or SVector
 
     # Not used in sampling
-    sampled_level_weights::MVector{64, Float64} # The weights of the top up to 64 levels
-    sampled_level_numbers::MVector{64, Int} # The level numbers of the top up to 64 levels TODO: consider merging with sampled_levels_weights or reducing elsize
+    sampled_level_weights::MVector{N, Float64} # The weights of the top up to N levels
+    sampled_level_numbers::MVector{N, Int} # The level numbers of the top up to N levels TODO: consider merging with sampled_levels_weights or reducing elsize
     all_levels::Vector{Tuple{Float64, RejectionSampler3}} # All the levels, in insertion order, along with their total weights
     level_set::LinkedListSet3 # A set of which levels are present (named by level number)
     level_set_map::Dict{Int, Tuple{Int, Int}} # A mapping from level number to index in all_levels and index in sampled_levels (or 0 if not in sampled_levels)
@@ -305,11 +308,12 @@ struct NestedSampler5
     reset_distribution::Base.RefValue{Bool}
 end
 
-NestedSampler5() = NestedSampler5(
-    SelectionSampler4(zero(MVector{64, Float64})),
+NestedSampler5() = NestedSampler5{64}()
+NestedSampler5{N}() = NestedSampler5{N}(
+    SelectionSampler4(zero(MVector{N, Float64})),
     Tuple{Float64, RejectionSampler3}[],
-    zero(MVector{64, Float64}),
-    zero(MVector{64, Int}),
+    zero(MVector{N, Float64}),
+    zero(MVector{N, Int}),
     RejectionSampler3[],
     LinkedListSet3(),
     Dict{Int, Tuple{Int, Int}}(),
@@ -327,7 +331,7 @@ function Base.rand(rng::AbstractRNG, ns::NestedSampler5)
     rand(rng, ns.sampled_levels[level])
 end
 
-function Base.push!(ns::NestedSampler5, i::Int, x::Float64)
+function Base.push!(ns::NestedSampler5{N}, i::Int, x::Float64) where N
     ns.reset_distribution[] = true
     i <= 0 && throw(ArgumentError("Elements must be positive"))
     if i > lastindex(ns.entry_info)
@@ -358,13 +362,13 @@ function Base.push!(ns::NestedSampler5, i::Int, x::Float64)
 
         # Update the sampled levels if needed
         if level > ns.least_significant_sampled_level[] # we just created a sampled level
-            if length(ns.sampled_levels) < 64 # Add the new level to the top 64
+            if length(ns.sampled_levels) < N # Add the new level to the top 64
                 push!(ns.sampled_levels, level_sampler)
                 sl_length = length(ns.sampled_levels)
                 ns.sampled_level_weights[sl_length] = x
                 ns.sampled_level_numbers[sl_length] = level
                 ns.level_set_map[level] = (all_levels_index, length(ns.sampled_levels))
-                if length(ns.sampled_levels) == 64
+                if length(ns.sampled_levels) == N
                     ns.least_significant_sampled_level[] = findnext(ns.level_set, ns.least_significant_sampled_level[]+1)
                 end
             else # Replace the least significant sampled level with the new level
@@ -422,7 +426,7 @@ function Base.delete!(ns::NestedSampler5, i::Int)
         if k != 0 # Remove a sampled level
             replacement = findprev(ns.level_set, ns.least_significant_sampled_level[]-1)
             ns.level_set_map[level] = (l, 0)
-            if replacement === nothing # We'll now have fewer than 64 sampled levels
+            if replacement === nothing # We'll now have fewer than N sampled levels
                 ns.least_significant_sampled_level[] = -1075
                 sl_length = length(ns.sampled_levels)
                 moved_level = ns.sampled_level_numbers[sl_length]
