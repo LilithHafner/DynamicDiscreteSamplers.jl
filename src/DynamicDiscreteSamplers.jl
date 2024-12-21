@@ -22,7 +22,7 @@ end
 
 function Random.rand(rng::AbstractRNG, rs::RejectionSampler8)
     while true
-        u = rand(UInt64)
+        u = rand(rng, UInt64)
         i = u & 0x07 + 1
         u > rs.p[i] || return i
     end
@@ -60,7 +60,7 @@ mutable struct SelectionSampler6
     SelectionSampler6(p) = new(normalize(p))
 end
 function Base.rand(rng::AbstractRNG, ss::SelectionSampler6)
-    u = rand()
+    u = rand(rng)
     count(<(u), ss.p) + 1
 end
 function set_weights!(ss::SelectionSampler6, p)
@@ -88,7 +88,7 @@ mutable struct SelectionSampler{N}
     SelectionSampler(p::NTuple{N, <:Any}) where N = new{N-1}(normalize(p))
 end
 function Base.rand(rng::AbstractRNG, ss::SelectionSampler)
-    u = rand()
+    u = rand(rng)
     count(<(u), ss.p) + 1
 end
 function set_weights!(ss::SelectionSampler, p)
@@ -113,7 +113,7 @@ struct SelectionSampler2{N}
     SelectionSampler2(p) = new{length(p)-1}(normalize(p))
 end
 function Base.rand(rng::AbstractRNG, ss::SelectionSampler2)
-    u = rand()
+    u = rand(rng)
     count(<(u), ss.p) + 1
 end
 set_weights!(ss::SelectionSampler2, p) = set_weights!(ss, SVector(p))
@@ -141,7 +141,7 @@ struct SelectionSampler3{N}
     p::MVector{N, Float64}
 end
 function Base.rand(rng::AbstractRNG, ss::SelectionSampler3)
-    u = rand()*last(ss.p)
+    u = rand(rng)*last(ss.p)
     count(<(u), ss.p) + 1
 end
 set_weights!(ss::SelectionSampler3, p) = set_weights!(ss, SVector(p))
@@ -166,7 +166,7 @@ struct SelectionSampler4{N}
     p::MVector{N, Float64}
 end
 function Base.rand(rng::AbstractRNG, ss::SelectionSampler4, lastfull::Int)
-    u = rand()*ss.p[lastfull]
+    u = rand(rng)*ss.p[lastfull]
     @inbounds for i in 1:lastfull
         ss.p[i] > u && return i
     end
@@ -192,10 +192,10 @@ function Random.rand(rng::AbstractRNG, rs::RejectionSampler3)
     mask = UInt64(1) << Base.top_set_bit(rs.length[] - 1) - 1 # assumes length(data) is the power of two next after (or including) rs.length[]
     maxw = rs.maxw[]
     while true
-        u = rand(UInt)
+        u = rand(rng, UInt)
         i = u & mask + 1
         res, x = rs.data[i]
-        rand() < x/maxw && return res # TODO: consider reusing random bits from u; a previous test revealed no perf improvement from doing this
+        rand(rng) < x/maxw && return res # TODO: consider reusing random bits from u; a previous test revealed no perf improvement from doing this
     end
 end
 function Base.push!(rs::RejectionSampler3, i, x)
