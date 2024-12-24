@@ -164,20 +164,27 @@ end
 
 struct SelectionSampler4{N}
     p::MVector{N, Float64}
+    o::MVector{N, Int16}
 end
 function Base.rand(rng::AbstractRNG, ss::SelectionSampler4, lastfull::Int)
     u = rand(rng)*ss.p[lastfull]
     @inbounds for i in 1:lastfull
-        ss.p[i] > u && return i
+        ss.p[i] > u && return Int(ss.o[i])
     end
     return lastfull
 end
 function set_cum_weights!(ss::SelectionSampler4, ns)
-    p, lastfull = ns.sampled_level_weights, length(ns.sampled_levels)
+    p, lastfull, reorder = ns.sampled_level_weights, length(ns.sampled_levels), ns.reset_order[]
+    if reorder > 50*lastfull
+        sortperm!(ss.o, p; rev=true)
+        ns.reset_order[] = 0
+    end
     slevels = ns.sampled_level_numbers
-    ss.p[1] = p[1]*prec_2pow[slevels[1]+1075]
+    j = ss.o[1]
+    ss.p[1] = p[j]*prec_2pow[slevels[j]+1075]
     @inbounds for i in 2:lastfull
-        ss.p[i] = ss.p[i-1] + p[i]*prec_2pow[slevels[i]+1075]
+        j = ss.o[i]
+        ss.p[i] = ss.p[i-1] + p[j]*prec_2pow[slevels[j]+1075]
     end
     ss
 end
@@ -321,12 +328,13 @@ struct NestedSampler5{N}
     least_significant_sampled_level::Base.RefValue{Int} # The level number of the least significant tracked level
     entry_info::Vector{Tuple{Int, Int}} # A mapping from element to level number and index in that level (index in level is 0 if entry is not present)
     reset_distribution::Base.RefValue{Bool}
+    reset_order::Base.RefValue{Int}
     nvalues::Base.RefValue{Int}
 end
 
 NestedSampler5() = NestedSampler5{64}()
 NestedSampler5{N}() where N = NestedSampler5{N}(
-    SelectionSampler4(zero(MVector{N, Float64})),
+    SelectionSampler4(zero(MVector{N, Float64}), MVector{N, Int16}(1:N)),
     Tuple{Double64, RejectionSampler3}[],
     zero(MVector{N, Float64}),
     zero(MVector{N, Int}),
@@ -336,6 +344,7 @@ NestedSampler5{N}() where N = NestedSampler5{N}(
     Ref(-1075),
     Tuple{Int, Int}[],
     Ref(true),
+    Ref(0),
     Ref(0)
 )
 
@@ -362,7 +371,7 @@ end
 Base.rand(ns::NestedSampler5) = rand(Random.default_rng(), ns)
 @inline function Base.rand(rng::AbstractRNG, ns::NestedSampler5)
     lastfull = length(ns.sampled_levels)
-    ns.reset_distribution[] && set_cum_weights!(ns.distribution_over_levels, ns)
+    (ns.reset_distribution[] || ns.reset_order[] > 500*lastfull) && set_cum_weights!(ns.distribution_over_levels, ns)
     ns.reset_distribution[] = false
     level = @inline rand(rng, ns.distribution_over_levels, lastfull)
     @inline rand(rng, ns.sampled_levels[level])
@@ -371,6 +380,7 @@ end
 @inline function Base.push!(ns::NestedSampler5{N}, i::Int, x::Float64) where N
     ns.reset_distribution[] = true
     ns.nvalues[] += 1
+    ns.reset_order[] += 1
     i <= 0 && throw(ArgumentError("Elements must be positive"))
     if i > lastindex(ns.entry_info)
         append!(ns.entry_info, Iterators.repeated((0, 0), i - lastindex(ns.entry_info)))
@@ -440,6 +450,7 @@ end
 @inline function Base.delete!(ns::NestedSampler5, i::Int)
     ns.reset_distribution[] = true
     ns.nvalues[] -= 1
+    ns.reset_order[] += 1
     if i <= 0 || i > lastindex(ns.entry_info)
         throw(ArgumentError("Element $i is not present"))
     end
