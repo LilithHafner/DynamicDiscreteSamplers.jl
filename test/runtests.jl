@@ -8,6 +8,8 @@ using StableRNGs
 using StatsBase
 
 @test DynamicDiscreteSamplers.DEBUG === true
+DynamicDiscreteSamplers.@check 1+1 == 2
+@test_throws AssertionError DynamicDiscreteSamplers.@check 1+1 == 3
 
 @testset "unit tests" begin
     lls = DynamicDiscreteSamplers.LinkedListSet()
