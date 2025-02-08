@@ -141,9 +141,6 @@ TODO
 # highest normal significand (52 ones with an implicit leading 1) the significand
 # stored in sub_weights is 0xfffffffffffff800 and there are 2^64-2^11 pips less than
 # that value for a probability of (2^64-2^11) / 2^64 == (2^53-1) / 2^53 == prevfloat(2.0)/2.0
-@assert 0xfffffffffffff800//big(2)^64 == (UInt64(2)^53-1)//UInt64(2)^53 == big(prevfloat(2.0))/big(2.0)
-@assert 0x8000000000000000 | (reinterpret(UInt64, 1.0::Float64) << 11) === 0x8000000000000000
-@assert 0x8000000000000000 | (reinterpret(UInt64, prevfloat(1.0)::Float64) << 11) === 0xfffffffffffff800
 # significand sums are literal sums of the element_from_sub_weights's (though stored
 # as UInt128s because any two element_from_sub_weights's will overflow when added).
 
@@ -219,7 +216,7 @@ Base.setindex!(w::Weights, v, i::Int) = (_setindex!(w.m, Float64(v), i); w)
 end
 
 function _getindex(m::Memory{UInt64}, i::Int)
-    @boundscheck 1 <= i <= m[1] || throw(BoundsError(_FixedSizeWeights(m), i))
+    @boundscheck 1 <= i <= m[1] || error()#throw(BoundsError(_FixedSizeWeights(m), i))
     j = 2i + 10490
     pos = m[j]
     pos == 0 && return 0.0
@@ -229,13 +226,13 @@ function _getindex(m::Memory{UInt64}, i::Int)
 end
 
 function _setindex!(m::Memory, v::Float64, i::Int)
-    @boundscheck 1 <= i <= m[1] || throw(BoundsError(_FixedSizeWeights(m), i))
+    @boundscheck 1 <= i <= m[1] || error()#throw(BoundsError(_FixedSizeWeights(m), i))
     uv = reinterpret(UInt64, v)
     if uv == 0
         _set_to_zero!(m, i)
         return
     end
-    0x0010000000000000 <= uv <= 0x7fefffffffffffff || throw(DomainError(v, "Invalid weight")) # Excludes subnormals
+    0x0010000000000000 <= uv <= 0x7fefffffffffffff || error()#throw(DomainError(v, "Invalid weight")) # Excludes subnormals
 
     # Find the entry's pos in the edit map table
     j = 2i + 10490
@@ -243,7 +240,7 @@ function _setindex!(m::Memory, v::Float64, i::Int)
     if pos == 0
         _set_from_zero!(m, v, i::Int)
     else
-        _set_nonzero!(m, v, i::Int)
+        # _set_nonzero!(m, v, i::Int)
     end
 end
 
@@ -256,7 +253,6 @@ end
 function _set_from_zero!(m::Memory, v::Float64, i::Int)
     uv = reinterpret(UInt64, v)
     j = 2i + 10490
-    @assert m[j] == 0
 
     exponent = uv >> 52
     m[j+1] = exponent
@@ -273,7 +269,6 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
         shift = -24
         weight = UInt64(significand_sum<<shift) + 1 # TODO for perf: change to % UInt64
 
-        @assert Base.top_set_bit(weight) == 40 # TODO for perf: delete
         m[weight_index] = weight
         m[4] = weight
     else
@@ -304,10 +299,6 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
             if weight_index < m[2] # if the new weight was not adjusted by set_global_shift_decrease!, then adjust it manually
                 shift = signed(2051-weight_index+m3)
                 new_weight = (significand_sum<<shift) % UInt64 + 1
-
-                @assert significand_sum != 0
-                @assert m[weight_index] == weight
-
                 m[weight_index] = new_weight
                 m[4] += new_weight-weight
             end
@@ -339,15 +330,12 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
                 next_free_space = compact!(m, m)
                 group_pos = next_free_space-new_allocation_length # The group will move but remian the last group
                 new_next_free_space = next_free_space+new_allocation_length
-                @assert new_next_free_space < length(m)+1 # TODO for perf, delete this
                 m[group_length_index] = group_length
 
                 # Re-lookup allocated chunk because compaction could have changed other
                 # chunk elements. However, the allocated size of this group could not have
                 # changed because it was previously maxed out.
                 allocs_chunk = m[allocs_index]
-                @assert log2_allocated_size == allocs_chunk >> allocs_subindex % UInt8 - 1
-                @assert allocated_size == 1<<log2_allocated_size
             end
             # expand the allocated size and bump next_free_space
             new_chunk = allocs_chunk + UInt64(1) << allocs_subindex
@@ -361,7 +349,6 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
                 next_free_space = compact!(m, m)
                 m[group_length_index] = group_length
                 new_next_free_space = next_free_space+twice_new_allocated_size
-                @assert new_next_free_space < length(m)+1 # After compaction there should be room TODO for perf, delete this
 
                 group_pos = m[group_length_index-1] # The group likely moved during compaction
 
@@ -369,8 +356,6 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
                 # chunk elements. However, the allocated size of this group could not have
                 # changed because it was previously maxed out.
                 allocs_chunk = m[allocs_index]
-                @assert log2_allocated_size == allocs_chunk >> allocs_subindex % UInt8 - 1
-                @assert allocated_size == 1<<log2_allocated_size
             end
             # TODO for perf: make compact! re-allocate the expanded group larger so there's no need to double the allocated size here if the compact branch is taken
             # TODO for perf, try removing the moveie before compaction (tricky: where to store that info?)
@@ -421,10 +406,13 @@ split_uint128(x::UInt128) = (x % UInt64, (x >>> 64) % UInt64)
 get_significand_sum_index(exponent::UInt64) = 5 + 3*2046 - 2exponent
 get_UInt128(m::Memory, i::Integer) = get_UInt128(m, _convert(Int, i))
 get_UInt128(m::Memory, i::Int) = merge_uint64(m[i], m[i+1])
-set_UInt128!(m::Memory, v::UInt128, i::Integer) = m[i:i+1] .= split_uint128(v)
-
+function set_UInt128!(m::Memory, v::UInt128, i::Integer)
+    x,y = split_uint128(v)
+    m[i] = x
+    m[i+1] = y
+    nothing
+end
 function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase shift, on deletion of elements
-    @assert signed(m[3]) < signed(m3)
     m[3] = m3
     # Story:
     # In the likely case that the weight decrease resulted in a level's weight hitting zero
@@ -447,10 +435,9 @@ function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase sh
     m[4] = recompute_weights!(m, m3, m4, recompute_range)
 end
 
-function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease shift, on insertion of elements
+function set_global_shift_decrease!(m::Memory{UInt64}, m3::UInt64, m4::UInt64=m[4]) # Decrease shift, on insertion of elements
     m3_old = m[3]
     m[3] = m3
-    @assert signed(m3) < signed(m3_old)
 
     # In the case of adding a giant element, call this first, then add the element.
     # In any case, this only adjusts elements at or after m[2]
@@ -462,32 +449,30 @@ function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease s
     recompute_range = m2:min(i1, 2050)
     flatten_range = max(m2, i1+1):min(i1_old, 2050)
     # From the level where one element contributes 2^64 to the level where one element contributes 1 is 64, and from there to the level where 2^64 elements contributes 1 is another 2^64.
-    @assert length(recompute_range) <= 128
-    @assert length(flatten_range) <= 128
 
     m4 = recompute_weights!(m, m3, m4, recompute_range)
     checkbounds(m, flatten_range)
-    @inbounds for i in flatten_range # set nonzeros to 1
-        old_weight = m[i]
+    for i in flatten_range # set nonzeros to 1
+        Base.@assume_effects :noub @inbounds old_weight = m[i]
         weight = old_weight != 0
-        m[i] = weight
+        Base.@assume_effects :noub @inbounds m[i] = weight
         m4 += weight-old_weight
     end
 
     m[4] = m4
 end
 
-function recompute_weights!(m, m3, m4, range)
+function recompute_weights!(m::Memory{UInt64}, m3::UInt64, m4::UInt64, range::UnitRange{Int})
     checkbounds(m, range)
-    @inbounds for i in range
+    for i in range
         j = 2i+2041
         significand_sum = get_UInt128(m, j)
         significand_sum == 0 && continue # in this case, the weight was and still is zero
         shift = signed(2051-i+m3)
         weight = (significand_sum<<shift) % UInt64 + 1
 
-        old_weight = m[i]
-        m[i] = weight
+        Base.@assume_effects :noub @inbounds old_weight = m[i]
+        Base.@assume_effects :noub @inbounds m[i] = weight
         m4 += weight-old_weight
     end
     m4
@@ -522,10 +507,10 @@ function _set_to_zero!(m::Memory, i::Int)
         else
             m2 = Int(m[2])
             if weight_index == m2 # We zeroed out the first group
-                m[10235] != 0 && firstindex(m) <= m2 < 10235 && m2 isa Int || error() # This makes the following @inbounds safe. If the compiler can follow my reasoning, then the error checking can also improve effect analysis and therefore performance.
-                while true # Update m[2]
+                m[10235] != 0 && firstindex(m) <= m2 < 10235 && m2 isa Int && m isa Memory{UInt64} || error() # This makes the following @inbounds safe. If the compiler can follow my reasoning, then the error checking can also improve effect analysis and therefore performance.
+                Base.@assume_effects :terminates_locally while true # Update m[2]
                     m2 += 1
-                    @inbounds m[m2] != 0 && break # TODO, see if the compiler can infer noub
+                    Base.@assume_effects :noub @inbounds m[m2] != 0 && break # TODO help the compiler infer noub
                 end
                 m[2] = m2
             end
@@ -548,8 +533,7 @@ function _set_to_zero!(m::Memory, i::Int)
         x = get_UInt128(m, j2)
         # TODO refactor indexing for simplicity
         x2 = UInt64(x>>63) #TODO for perf %UInt64
-        @assert x2 != 0
-        for i in 1:Sys.WORD_SIZE # TODO for perf, we can get away with shaving 1 to 10 off of this loop.
+        Base.@assume_effects :terminates_locally for i in 1:Sys.WORD_SIZE # TODO for perf, we can get away with shaving 1 to 10 off of this loop.
             x2 += _convert(UInt, get_UInt128(m, j2+2i) >> (63+i))
         end
 
@@ -569,7 +553,6 @@ function _set_to_zero!(m::Memory, i::Int)
 
         set_global_shift_increase!(m, m2, m3, m4) # TODO for perf: special case all call sites to this function to take advantage of known shift direction and/or magnitude; also try outlining
 
-        @assert 46 <= Base.top_set_bit(m[4]) <= 53 # Could be a higher because of the rounding up, but this should never bump top set bit by more than about 8 # TODO for perf: delete
     else
         m[4] = m4
     end
@@ -630,6 +613,9 @@ function Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Int
         end
     else
         w[len+1:old_len] .= 0 # This is a necessary but highly nontrivial operation
+        # for i in len+1:old_len
+            # w[i] = 0 # This is a necessary but highly nontrivial operation
+        # end
         m[1] = len
     end
     w
@@ -643,11 +629,13 @@ function _resize!(w::ResizableWeights, len::Integer)
     m = w.m
     old_len = m[1]
     m2 = Memory{UInt64}(undef, allocated_memory(len))
-    m2 .= 0 # For debugging; TODO: delete, TODO: set to 0xdeadbeefdeadbeef to test
+    # m2 .= 0 # For debugging; TODO: delete, TODO: set to 0xdeadbeefdeadbeef to test
     m2[1] = len
     if len > old_len # grow
         unsafe_copyto!(m2, 2, m, 2, 2old_len + 10490)
-        m2[2old_len + 10492:2len + 10491] .= 0
+        for i in 2old_len + 10492:2len + 10491
+            m2[i] = 0
+        end
     else # shrink
         unsafe_copyto!(m2, 2, m, 2, 2len + 10490)
     end
@@ -668,7 +656,6 @@ function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
         target = signed(src[src_i+1])
         while target < 0
             if unsigned(target) < 0xc000000000000000 # empty non-abandoned group; let's clean it up
-                @assert 0x8000000000000001 <= unsigned(target) <= 0x80000000000007fe
                 exponent = unsigned(target) - 0x8000000000000000 # TODO for clarity: dry this
                 allocs_index,allocs_subindex = get_alloced_indices(exponent)
                 allocs_chunk = dst[allocs_index] # TODO for perf: consider not copying metadata on out of place compaction (and consider the impact here)
