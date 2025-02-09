@@ -12,8 +12,8 @@ w = DynamicDiscreteSamplers.FixedSizeWeights(10)
 
 @test rand(w) === 1
 
-@test_throws BoundsError w[0]
-@test_throws BoundsError w[11]
+@test_throws ErrorException w[0] # Because BoundsError taints effects
+@test_throws ErrorException w[11] # Because BoundsError taints effects
 @test w[1] === 1.0
 for i in 2:10
     @test w[i] === 0.0

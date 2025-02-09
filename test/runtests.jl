@@ -223,3 +223,55 @@ push!(ds, 2, 1e308)
 delete!(ds, 2)
 push!(ds, 2, 1e308) # This previously threw
 @test rand(ds) == 2
+
+@testset "Effects" begin
+    TRUE = Core.Compiler.ALWAYS_TRUE
+    for T in [DynamicDiscreteSamplers.ResizableWeights, DynamicDiscreteSamplers.SemiResizableWeights, DynamicDiscreteSamplers.FixedSizeWeights]
+        e = Base.infer_effects(rand, (Xoshiro, T))
+        @test e.consistent != TRUE
+        @test e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY
+        @test e.nothrow == false # in the case of a malformed sampler
+        @test e.terminates == false # it's plausible this could not terminate for pathological RNG state (e.g. all zeros)
+        @test e.notaskstate
+        @test e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY
+        @test e.noub == TRUE
+        @test e.nonoverlayed == TRUE
+        @test e.nortcall
+
+        e = Base.infer_effects(getindex, (T, Int))
+        @test e.consistent != TRUE
+        @test e.effect_free == TRUE
+        @test e.nothrow == false # index out of bounds
+        @test e.terminates
+        @test e.notaskstate
+        @test e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY
+        @test e.noub == TRUE
+        @test e.nonoverlayed == TRUE
+        @test e.nortcall
+
+        e = Base.infer_effects(setindex!, (T, Float64, Int))
+        @test e.consistent != TRUE
+        @test_broken e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
+        @test e.nothrow == false # index out of bounds
+        @test_broken e.terminates # loop analysis is weak
+        @test_broken e.notaskstate # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test_broken e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
+        @test_broken e.noub == TRUE # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test_broken e.nonoverlayed == TRUE # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test e.nortcall
+    end
+
+    for T in [DynamicDiscreteSamplers.ResizableWeights, DynamicDiscreteSamplers.SemiResizableWeights]
+        @show T
+        e = Base.infer_effects(resize!, (T, Int))
+        @test e.consistent != TRUE
+        @test_broken e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
+        @test e.nothrow == false # index out of bounds
+        @test_broken e.terminates # loop analysis is weak
+        @test_broken e.notaskstate # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test_broken e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
+        @test_broken e.noub == TRUE # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test_broken e.nonoverlayed == TRUE # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test e.nortcall
+    end
+end

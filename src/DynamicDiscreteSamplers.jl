@@ -432,7 +432,7 @@ function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase sh
     2173+signed(m3) <= i
     So for i < 2173+signed(m3), we could need to adjust the ith weight
     =#
-    recompute_range = m2:min(2172+signed(m3), 2050) # TODO It would be possible to scale this range with length (m[1]) in which case testing could be stricter and performance could be (marginally) better, though not in large cases so possibly not worth doing at all)
+    recompute_range = signed(m2):min(2172+signed(m3), 2050) # TODO It would be possible to scale this range with length (m[1]) in which case testing could be stricter and performance could be (marginally) better, though not in large cases so possibly not worth doing at all)
     m[4] = recompute_weights!(m, m3, m4, recompute_range)
 end
 
@@ -447,7 +447,7 @@ function set_global_shift_decrease!(m::Memory{UInt64}, m3::UInt64, m4::UInt64=m[
     m2 = signed(m[2])
     i1 = 2172+signed(m3) # see above, this is the last index that could have weight > 1 (anything after this will have weight 1 or 0)
     i1_old = 2172+signed(m3_old) # anything after this is already weight 1 or 0
-    recompute_range = m2:min(i1, 2050)
+    recompute_range = signed(m2):min(i1, 2050)
     flatten_range = max(m2, i1+1):min(i1_old, 2050)
     # From the level where one element contributes 2^64 to the level where one element contributes 1 is 64, and from there to the level where 2^64 elements contributes 1 is another 2^64.
 
@@ -610,7 +610,7 @@ function Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Int
     if len > old_len
         am = allocated_memory(len)
         if am > length(m)
-            w isa SemiResizableWeights && throw(ArgumentError("Cannot increase the size of a SemiResizableWeights above its original allocated size. Try using a ResizableWeights instead."))
+            w isa SemiResizableWeights && error()#throw(ArgumentError("Cannot increase the size of a SemiResizableWeights above its original allocated size. Try using a ResizableWeights instead."))
             _resize!(w, len)
         else
             m[1] = len
