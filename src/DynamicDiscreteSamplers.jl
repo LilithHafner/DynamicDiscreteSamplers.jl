@@ -240,7 +240,7 @@ function _setindex!(m::Memory, v::Float64, i::Int)
     if pos == 0
         _set_from_zero!(m, v, i::Int)
     else
-        # _set_nonzero!(m, v, i::Int)
+        _set_nonzero!(m, v, i::Int)
     end
 end
 
@@ -412,6 +412,7 @@ function set_UInt128!(m::Memory, v::UInt128, i::Integer)
     m[i+1] = y
     nothing
 end
+
 function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase shift, on deletion of elements
     m[3] = m3
     # Story:
@@ -588,8 +589,11 @@ ResizableWeights(len::Integer) = ResizableWeights(FixedSizeWeights(len))
 SemiResizableWeights(len::Integer) = SemiResizableWeights(FixedSizeWeights(len))
 function FixedSizeWeights(len::Integer)
     m = Memory{UInt64}(undef, allocated_memory(len))
-    m .= 0 # TODO for perf: delete this. It's here so that a sparse rendering for debugging is easier TODO for tests: set this to 0xdeadbeefdeadbeed
-    m[4:10491+2len] .= 0 # metadata and edit map need to be zeroed but the bulk does not
+    # m .= 0 # TODO for perf: delete this. It's here so that a sparse rendering for debugging is easier TODO for tests: set this to 0xdeadbeefdeadbeed
+    Base.@assume_effects :terminates_locally for i in 4:10491+2Int(len)
+        m[i] = 0
+    end
+    # m[4:10491+2len] .= 0 # metadata and edit map need to be zeroed but the bulk does not
     m[1] = len
     m[2] = 2051
     # no need to set m[3]
@@ -613,9 +617,6 @@ function Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Int
         end
     else
         w[len+1:old_len] .= 0 # This is a necessary but highly nontrivial operation
-        # for i in len+1:old_len
-            # w[i] = 0 # This is a necessary but highly nontrivial operation
-        # end
         m[1] = len
     end
     w
