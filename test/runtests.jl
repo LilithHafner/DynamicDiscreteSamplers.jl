@@ -224,9 +224,10 @@ delete!(ds, 2)
 push!(ds, 2, 1e308) # This previously threw
 @test rand(ds) == 2
 
-# TODO: make effects good even with good error messages
+# TODO: make effects good even with good error messages and precompilation
 effects_code = String(read(joinpath(dirname(@__DIR__), "src", "DynamicDiscreteSamplers.jl")))
 effects_code = replace(effects_code, "@assert"=>"#@assert") # Asserts have bad effects
+effects_code = replace(effects_code, "\nprecompile("=>"\n#precompile(") # Precompile hurts effects (https://github.com/JuliaLang/julia/issues/57324)
 effects_code = replace(effects_code, r"throw\((Bounds|Argument|Domain)Error\(.*?\)\)"=>"error()") # Good errors have bad effects
 effects_file = tempname()
 open(effects_file, "w") do io
@@ -266,10 +267,10 @@ end
         @test_broken e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
         @test e.nothrow == false # index out of bounds
         @test_broken e.terminates # loop analysis is weak
-        @test_broken e.notaskstate # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test e.notaskstate
         @test_broken e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
-        @test_broken e.noub == TRUE # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
-        @test_broken e.nonoverlayed == TRUE # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test e.noub == TRUE
+        @test e.nonoverlayed == TRUE
         @test e.nortcall
     end
 
@@ -279,10 +280,10 @@ end
         @test_broken e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
         @test e.nothrow == false # index out of bounds
         @test_broken e.terminates # loop analysis is weak
-        @test_broken e.notaskstate # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test e.notaskstate
         @test_broken e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
-        @test_broken e.noub == TRUE # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
-        @test_broken e.nonoverlayed == TRUE # Broken by precompile statements (see https://github.com/JuliaLang/julia/issues/57324)
+        @test e.noub == TRUE
+        @test e.nonoverlayed == TRUE
         @test e.nortcall
     end
 end
