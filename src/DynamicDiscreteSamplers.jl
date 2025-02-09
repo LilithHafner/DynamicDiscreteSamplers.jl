@@ -368,7 +368,7 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
             m[10235] = new_next_free_space
 
             # Copy the group to new location
-            (v"1.11" <= VERSION || 2group_length-2 != 0) && unsafe_copyto!(m, next_free_space, m, group_pos, 2group_length-2) # TODO for clarity and maybe perf: remove this version check
+            (v"1.11" <= VERSION || 2group_length-2 != 0) && copyto!(m, next_free_space, m, group_pos, 2group_length-2) # TODO for clarity and maybe perf: remove this version check
 
             # Adjust the pos entries in edit_map (bad memory order TODO: consider unzipping edit map to improve locality here)
             delta = next_free_space-group_pos
@@ -632,12 +632,12 @@ function _resize!(w::ResizableWeights, len::Integer)
     # m2 .= 0 # For debugging; TODO: delete, TODO: set to 0xdeadbeefdeadbeef to test
     m2[1] = len
     if len > old_len # grow
-        unsafe_copyto!(m2, 2, m, 2, 2old_len + 10490)
+        copyto!(m2, 2, m, 2, 2old_len + 10490)
         for i in 2old_len + 10492:2len + 10491
             m2[i] = 0
         end
     else # shrink
-        unsafe_copyto!(m2, 2, m, 2, 2len + 10490)
+        copyto!(m2, 2, m, 2, 2len + 10490)
     end
 
     compact!(m2, m)
@@ -699,7 +699,7 @@ function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
         dst[allocs_index] = new_chunk
 
         # Copy the group to a compacted location
-        unsafe_copyto!(dst, dst_i, src, src_i, 2group_length)
+        copyto!(dst, dst_i, src, src_i, 2group_length)
 
         # Adjust the pos entries in edit_map (bad memory order TODO: consider unzipping edit map to improve locality here)
         delta = unsigned(Int64(dst_i-src_i))
