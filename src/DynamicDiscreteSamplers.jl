@@ -452,6 +452,14 @@ function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase sh
     m[4] = recompute_weights!(m, m3, m4, recompute_range)
 end
 
+macro assume_safe_inbounds(arg)
+    if VERSION >= v"1.11"
+        :(Base.@assume_effects :noub @inbounds $(esc(arg)))
+    else
+        :(@inbounds $(esc(arg)))
+    end
+end
+
 function set_global_shift_decrease!(m::Memory{UInt64}, m3::UInt64, m4::UInt64=m[4]) # Decrease shift, on insertion of elements
     m3_old = m[3]
     m[3] = m3
@@ -473,9 +481,9 @@ function set_global_shift_decrease!(m::Memory{UInt64}, m3::UInt64, m4::UInt64=m[
     m4 = recompute_weights!(m, m3, m4, recompute_range)
     checkbounds(m, flatten_range)
     for i in flatten_range # set nonzeros to 1
-        Base.@assume_effects :noub @inbounds old_weight = m[i]
+        @assume_safe_inbounds old_weight = m[i]
         weight = old_weight != 0
-        Base.@assume_effects :noub @inbounds m[i] = weight
+        @assume_safe_inbounds m[i] = weight
         m4 += weight-old_weight
     end
 
@@ -491,8 +499,8 @@ function recompute_weights!(m::Memory{UInt64}, m3::UInt64, m4::UInt64, range::Un
         shift = signed(2051-i+m3)
         weight = (significand_sum<<shift) % UInt64 + 1
 
-        Base.@assume_effects :noub @inbounds old_weight = m[i]
-        Base.@assume_effects :noub @inbounds m[i] = weight
+        @assume_safe_inbounds old_weight = m[i]
+        @assume_safe_inbounds m[i] = weight
         m4 += weight-old_weight
     end
     m4
@@ -528,9 +536,9 @@ function _set_to_zero!(m::Memory, i::Int)
             m2 = Int(m[2])
             if weight_index == m2 # We zeroed out the first group
                 m[10235] != 0 && firstindex(m) <= m2 < 10235 && m2 isa Int && m isa Memory{UInt64} || error() # This makes the following @inbounds safe. If the compiler can follow my reasoning, then the error checking can also improve effect analysis and therefore performance.
-                Base.@assume_effects :terminates_locally while true # Update m[2]
+                while true # Update m[2]
                     m2 += 1
-                    Base.@assume_effects :noub @inbounds m[m2] != 0 && break # TODO help the compiler infer noub
+                    @assume_safe_inbounds m[m2] != 0 && break # TODO help the compiler infer noub
                 end
                 m[2] = m2
             end
@@ -554,7 +562,7 @@ function _set_to_zero!(m::Memory, i::Int)
         # TODO refactor indexing for simplicity
         x2 = UInt64(x>>63) #TODO for perf %UInt64
         @assert x2 != 0
-        Base.@assume_effects :terminates_locally for i in 1:Sys.WORD_SIZE # TODO for perf, we can get away with shaving 1 to 10 off of this loop.
+        for i in 1:Sys.WORD_SIZE # TODO for perf, we can get away with shaving 1 to 10 off of this loop.
             x2 += _convert(UInt, get_UInt128(m, j2+2i) >> (63+i))
         end
 
@@ -608,10 +616,10 @@ end
 
 ResizableWeights(len::Integer) = ResizableWeights(FixedSizeWeights(len))
 SemiResizableWeights(len::Integer) = SemiResizableWeights(FixedSizeWeights(len))
-function FixedSizeWeights(len::Integer)
+Base.@assume_effects :terminates_locally function FixedSizeWeights(len::Integer)
     m = Memory{UInt64}(undef, allocated_memory(len))
     # m .= 0 # TODO for perf: delete this. It's here so that a sparse rendering for debugging is easier TODO for tests: set this to 0xdeadbeefdeadbeed
-    Base.@assume_effects :terminates_locally for i in 4:10491+2Int(len)
+    for i in 4:10491+2Int(len)
         m[i] = 0
     end
     # m[4:10491+2len] .= 0 # metadata and edit map need to be zeroed but the bulk does not

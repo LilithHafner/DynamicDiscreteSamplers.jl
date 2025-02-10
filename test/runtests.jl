@@ -247,9 +247,9 @@ end
         @test e.terminates == false # it's plausible this could not terminate for pathological RNG state (e.g. all zeros)
         @test e.notaskstate
         @test e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY
-        @test e.noub == TRUE
-        @test e.nonoverlayed == TRUE
-        @test e.nortcall
+        VERSION >= v"1.11" && @test e.noub == TRUE
+        VERSION >= v"1.11" && @test e.nonoverlayed == TRUE
+        VERSION >= v"1.11" && @test e.nortcall
 
         e = Base.infer_effects(getindex, (T, Int))
         @test e.consistent != TRUE
@@ -258,20 +258,20 @@ end
         @test e.terminates
         @test e.notaskstate
         @test e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY
-        @test e.noub == TRUE
-        @test e.nonoverlayed == TRUE
-        @test e.nortcall
+        VERSION >= v"1.11" && @test e.noub == TRUE
+        VERSION >= v"1.11" && @test e.nonoverlayed == TRUE
+        VERSION >= v"1.11" && @test e.nortcall
 
         e = Base.infer_effects(setindex!, (T, Float64, Int))
         @test e.consistent != TRUE
         @test_broken e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
         @test e.nothrow == false # index out of bounds
         @test_broken e.terminates # loop analysis is weak
-        @test e.notaskstate
+        VERSION >= v"1.11" && @test e.notaskstate
         @test_broken e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
-        @test e.noub == TRUE
-        @test e.nonoverlayed == TRUE
-        @test e.nortcall
+        VERSION >= v"1.11" && @test e.noub == TRUE
+        VERSION >= v"1.11" && @test e.nonoverlayed == TRUE
+        VERSION >= v"1.11" && @test e.nortcall
     end
 
     for T in [DDS.ResizableWeights, DDS.SemiResizableWeights]
@@ -280,10 +280,10 @@ end
         @test_broken e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
         @test e.nothrow == false # index out of bounds
         @test_broken e.terminates # loop analysis is weak
-        @test e.notaskstate
+        VERSION >= v"1.11" && @test e.notaskstate
         @test_broken e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
-        @test e.noub == TRUE
-        @test e.nonoverlayed == TRUE
-        @test e.nortcall
+        VERSION >= v"1.11" && @test e.noub == TRUE
+        VERSION >= v"1.11" && @test e.nonoverlayed == TRUE
+        VERSION >= v"1.11" && @test e.nortcall
     end
 end
