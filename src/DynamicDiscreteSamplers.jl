@@ -482,7 +482,7 @@ function set_global_shift_decrease!(m::Memory{UInt64}, m3::UInt64, m4::UInt64=m[
     m[4] = m4
 end
 
-function recompute_weights!(m::Memory{UInt64}, m3::UInt64, m4::UInt64, range::UnitRange{Int})
+function recompute_weights!(m::Memory{UInt64}, m3::UInt64, m4::UInt64, range::UnitRange{Int64})
     checkbounds(m, range)
     for i in range
         j = 2i+2041
