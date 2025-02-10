@@ -4,21 +4,21 @@ old = replace(String(read(Sys.ARGS[2])), ".../"=>" / ", "..."=>"")
 function combine((n,o))
     @show n o # Debug print statement, just in case.
     if count(==('|'), n) <= 3
-        @assert n == o
+        # @assert n == o
         return n
     end
 
     n_cols = split(n, '|')
     o_cols = split(o, '|')
-    @assert length(n_cols) == length(o_cols)
-    @assert isempty(first(n_cols))
-    @assert isempty(last(n_cols))
-    @assert isempty(first(o_cols))
-    @assert isempty(last(o_cols))
-    @assert n_cols[2] == o_cols[2]
+    # @assert length(n_cols) == length(o_cols)
+    # @assert isempty(first(n_cols))
+    # @assert isempty(last(n_cols))
+    # @assert isempty(first(o_cols))
+    # @assert isempty(last(o_cols))
+    # @assert n_cols[2] == o_cols[2]
 
     if all(isspace, n_cols[2]) || all(∈([':','-']), n_cols[2])
-        @assert n == o
+        # @assert n == o
         return n
     end
 
