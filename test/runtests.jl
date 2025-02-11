@@ -223,3 +223,67 @@ push!(ds, 2, 1e308)
 delete!(ds, 2)
 push!(ds, 2, 1e308) # This previously threw
 @test rand(ds) == 2
+
+# TODO: make effects good even with good error messages and precompilation
+effects_code = String(read(joinpath(dirname(@__DIR__), "src", "DynamicDiscreteSamplers.jl")))
+effects_code = replace(effects_code, "@assert"=>"#@assert") # Asserts have bad effects
+effects_code = replace(effects_code, "\nprecompile("=>"\n#precompile(") # Precompile hurts effects (https://github.com/JuliaLang/julia/issues/57324)
+effects_code = replace(effects_code, r"throw\((Bounds|Argument|Domain)Error\(.*?\)\)"=>"error()") # Good errors have bad effects
+effects_file = tempname()
+open(effects_file, "w") do io
+    write(io, effects_code)
+end
+module EffectsWorkaround
+    include(parentmodule(@__MODULE__).effects_file)
+end
+@testset "Effects" begin
+    DDS = EffectsWorkaround.DynamicDiscreteSamplers
+    TRUE = Core.Compiler.ALWAYS_TRUE
+    for T in [DDS.ResizableWeights, DDS.SemiResizableWeights, DDS.FixedSizeWeights]
+        e = Base.infer_effects(rand, (Xoshiro, T))
+        @test e.consistent != TRUE
+        @test e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY
+        @test e.nothrow == false # in the case of a malformed sampler
+        @test e.terminates == false # it's plausible this could not terminate for pathological RNG state (e.g. all zeros)
+        @test e.notaskstate
+        @test e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY
+        VERSION >= v"1.11" && @test e.noub == TRUE
+        VERSION >= v"1.11" && @test e.nonoverlayed == TRUE
+        VERSION >= v"1.11" && @test e.nortcall
+
+        e = Base.infer_effects(getindex, (T, Int))
+        @test e.consistent != TRUE
+        @test e.effect_free == TRUE
+        @test e.nothrow == false # index out of bounds
+        @test e.terminates
+        @test e.notaskstate
+        @test e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY
+        VERSION >= v"1.11" && @test e.noub == TRUE
+        VERSION >= v"1.11" && @test e.nonoverlayed == TRUE
+        VERSION >= v"1.11" && @test e.nortcall
+
+        e = Base.infer_effects(setindex!, (T, Float64, Int))
+        @test e.consistent != TRUE
+        @test_broken e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
+        @test e.nothrow == false # index out of bounds
+        @test_broken e.terminates # loop analysis is weak
+        VERSION >= v"1.11" && @test e.notaskstate
+        @test_broken e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
+        VERSION >= v"1.11" && @test e.noub == TRUE
+        VERSION >= v"1.11" && @test e.nonoverlayed == TRUE
+        VERSION >= v"1.11" && @test e.nortcall
+    end
+
+    for T in [DDS.ResizableWeights, DDS.SemiResizableWeights]
+        e = Base.infer_effects(resize!, (T, Int))
+        @test e.consistent != TRUE
+        @test_broken e.effect_free == Core.Compiler.EFFECT_FREE_IF_INACCESSIBLEMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
+        @test e.nothrow == false # index out of bounds
+        @test_broken e.terminates # loop analysis is weak
+        VERSION >= v"1.11" && @test e.notaskstate
+        @test_broken e.inaccessiblememonly == Core.Compiler.INACCESSIBLEMEM_OR_ARGMEMONLY # broken due to copyto!(::Memory, ::Int, ::Memory, ::Int, ::Int)
+        VERSION >= v"1.11" && @test e.noub == TRUE
+        VERSION >= v"1.11" && @test e.nonoverlayed == TRUE
+        VERSION >= v"1.11" && @test e.nortcall
+    end
+end

@@ -383,7 +383,7 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
             m[10235] = new_next_free_space
 
             # Copy the group to new location
-            (v"1.11" <= VERSION || 2group_length-2 != 0) && unsafe_copyto!(m, next_free_space, m, group_pos, 2group_length-2) # TODO for clarity and maybe perf: remove this version check
+            (v"1.11" <= VERSION || 2group_length-2 != 0) && copyto!(m, next_free_space, m, group_pos, 2group_length-2) # TODO for clarity and maybe perf: remove this version check
 
             # Adjust the pos entries in edit_map (bad memory order TODO: consider unzipping edit map to improve locality here)
             delta = next_free_space-group_pos
@@ -421,7 +421,12 @@ split_uint128(x::UInt128) = (x % UInt64, (x >>> 64) % UInt64)
 get_significand_sum_index(exponent::UInt64) = 5 + 3*2046 - 2exponent
 get_UInt128(m::Memory, i::Integer) = get_UInt128(m, _convert(Int, i))
 get_UInt128(m::Memory, i::Int) = merge_uint64(m[i], m[i+1])
-set_UInt128!(m::Memory, v::UInt128, i::Integer) = m[i:i+1] .= split_uint128(v)
+function set_UInt128!(m::Memory, v::UInt128, i::Integer)
+    x,y = split_uint128(v)
+    m[i] = x
+    m[i+1] = y
+    nothing
+end
 
 function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase shift, on deletion of elements
     @assert signed(m[3]) < signed(m3)
@@ -443,11 +448,19 @@ function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase sh
     2173+signed(m3) <= i
     So for i < 2173+signed(m3), we could need to adjust the ith weight
     =#
-    recompute_range = m2:min(2172+signed(m3), 2050) # TODO It would be possible to scale this range with length (m[1]) in which case testing could be stricter and performance could be (marginally) better, though not in large cases so possibly not worth doing at all)
+    recompute_range = signed(m2):min(2172+signed(m3), 2050) # TODO It would be possible to scale this range with length (m[1]) in which case testing could be stricter and performance could be (marginally) better, though not in large cases so possibly not worth doing at all)
     m[4] = recompute_weights!(m, m3, m4, recompute_range)
 end
 
-function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease shift, on insertion of elements
+macro assume_safe_inbounds(arg)
+    if VERSION >= v"1.11"
+        :(Base.@assume_effects :noub @inbounds $(esc(arg)))
+    else
+        :(@inbounds $(esc(arg)))
+    end
+end
+
+function set_global_shift_decrease!(m::Memory{UInt64}, m3::UInt64, m4::UInt64=m[4]) # Decrease shift, on insertion of elements
     m3_old = m[3]
     m[3] = m3
     @assert signed(m3) < signed(m3_old)
@@ -459,7 +472,7 @@ function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease s
     m2 = signed(m[2])
     i1 = 2172+signed(m3) # see above, this is the last index that could have weight > 1 (anything after this will have weight 1 or 0)
     i1_old = 2172+signed(m3_old) # anything after this is already weight 1 or 0
-    recompute_range = m2:min(i1, 2050)
+    recompute_range = signed(m2):min(i1, 2050)
     flatten_range = max(m2, i1+1):min(i1_old, 2050)
     # From the level where one element contributes 2^64 to the level where one element contributes 1 is 64, and from there to the level where 2^64 elements contributes 1 is another 2^64.
     @assert length(recompute_range) <= 128
@@ -467,27 +480,27 @@ function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease s
 
     m4 = recompute_weights!(m, m3, m4, recompute_range)
     checkbounds(m, flatten_range)
-    @inbounds for i in flatten_range # set nonzeros to 1
-        old_weight = m[i]
+    for i in flatten_range # set nonzeros to 1
+        @assume_safe_inbounds old_weight = m[i]
         weight = old_weight != 0
-        m[i] = weight
+        @assume_safe_inbounds m[i] = weight
         m4 += weight-old_weight
     end
 
     m[4] = m4
 end
 
-function recompute_weights!(m, m3, m4, range)
+function recompute_weights!(m::Memory{UInt64}, m3::UInt64, m4::UInt64, range::UnitRange{Int64})
     checkbounds(m, range)
-    @inbounds for i in range
+    for i in range
         j = 2i+2041
         significand_sum = get_UInt128(m, j)
         significand_sum == 0 && continue # in this case, the weight was and still is zero
         shift = signed(2051-i+m3)
         weight = (significand_sum<<shift) % UInt64 + 1
 
-        old_weight = m[i]
-        m[i] = weight
+        @assume_safe_inbounds old_weight = m[i]
+        @assume_safe_inbounds m[i] = weight
         m4 += weight-old_weight
     end
     m4
@@ -522,10 +535,10 @@ function _set_to_zero!(m::Memory, i::Int)
         else
             m2 = Int(m[2])
             if weight_index == m2 # We zeroed out the first group
-                m[10235] != 0 && firstindex(m) <= m2 < 10235 && m2 isa Int || error() # This makes the following @inbounds safe. If the compiler can follow my reasoning, then the error checking can also improve effect analysis and therefore performance.
+                m[10235] != 0 && firstindex(m) <= m2 < 10235 && m2 isa Int && m isa Memory{UInt64} || error() # This makes the following @inbounds safe. If the compiler can follow my reasoning, then the error checking can also improve effect analysis and therefore performance.
                 while true # Update m[2]
                     m2 += 1
-                    @inbounds m[m2] != 0 && break # TODO, see if the compiler can infer noub
+                    @assume_safe_inbounds m[m2] != 0 && break # TODO help the compiler infer noub
                 end
                 m[2] = m2
             end
@@ -603,10 +616,12 @@ end
 
 ResizableWeights(len::Integer) = ResizableWeights(FixedSizeWeights(len))
 SemiResizableWeights(len::Integer) = SemiResizableWeights(FixedSizeWeights(len))
-function FixedSizeWeights(len::Integer)
+Base.@assume_effects :terminates_locally function FixedSizeWeights(len::Integer)
     m = Memory{UInt64}(undef, allocated_memory(len))
     # m .= 0 # This is here so that a sparse rendering for debugging is easier TODO for tests: set this to 0xdeadbeefdeadbeed
-    m[4:10491+2len] .= 0 # metadata and edit map need to be zeroed but the bulk does not
+    for i in 4:10491+2Int(len) # metadata and edit map need to be zeroed but the bulk does not
+        m[i] = 0
+    end
     m[1] = len
     m[2] = 2051
     # no need to set m[3]
@@ -646,10 +661,12 @@ function _resize!(w::ResizableWeights, len::Integer)
     # m2 .= 0 # For debugging; TODO: set to 0xdeadbeefdeadbeef to test
     m2[1] = len
     if len > old_len # grow
-        unsafe_copyto!(m2, 2, m, 2, 2old_len + 10490)
-        m2[2old_len + 10492:2len + 10491] .= 0
+        copyto!(m2, 2, m, 2, 2old_len + 10490)
+        for i in 2old_len + 10492:2len + 10491
+            m2[i] = 0
+        end
     else # shrink
-        unsafe_copyto!(m2, 2, m, 2, 2len + 10490)
+        copyto!(m2, 2, m, 2, 2len + 10490)
     end
 
     compact!(m2, m)
@@ -712,7 +729,7 @@ function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
         dst[allocs_index] = new_chunk
 
         # Copy the group to a compacted location
-        unsafe_copyto!(dst, dst_i, src, src_i, 2group_length)
+        copyto!(dst, dst_i, src, src_i, 2group_length)
 
         # Adjust the pos entries in edit_map (bad memory order TODO: consider unzipping edit map to improve locality here)
         delta = unsigned(Int64(dst_i-src_i))
