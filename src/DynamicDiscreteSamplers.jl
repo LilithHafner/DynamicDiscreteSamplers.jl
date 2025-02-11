@@ -162,7 +162,7 @@ Base.rand(rng::AbstractRNG, w::Weights) = _rand(rng, w.m)
 Base.getindex(w::Weights, i::Int) = _getindex(w.m, i)
 Base.setindex!(w::Weights, v, i::Int) = (_setindex!(w.m, Float64(v), i); w)
 
-#=@inbounds=# function _rand(rng::AbstractRNG, m::Memory{UInt64})
+Base.@assume_effects :noub @inbounds function _rand(rng::AbstractRNG, m::Memory{UInt64})
 
     @label reject
 
@@ -218,7 +218,7 @@ Base.setindex!(w::Weights, v, i::Int) = (_setindex!(w.m, Float64(v), i); w)
     end
 end
 
-function _getindex(m::Memory{UInt64}, i::Int)
+Base.@assume_effects :noub @inbounds function _getindex(m::Memory{UInt64}, i::Int)
     @boundscheck 1 <= i <= m[1] || throw(BoundsError(_FixedSizeWeights(m), i))
     j = 2i + 10490
     pos = m[j]
@@ -228,7 +228,7 @@ function _getindex(m::Memory{UInt64}, i::Int)
     reinterpret(Float64, (exponent<<52) | (weight - 0x8000000000000000) >> 11)
 end
 
-function _setindex!(m::Memory, v::Float64, i::Int)
+Base.@assume_effects :noub @inbounds function _setindex!(m::Memory, v::Float64, i::Int)
     @boundscheck 1 <= i <= m[1] || throw(BoundsError(_FixedSizeWeights(m), i))
     uv = reinterpret(UInt64, v)
     if uv == 0
@@ -253,7 +253,7 @@ function _set_nonzero!(m, v, i)
     _set_from_zero!(m, v, i)
 end
 
-function _set_from_zero!(m::Memory, v::Float64, i::Int)
+Base.@assume_effects :noub @inbounds function _set_from_zero!(m::Memory, v::Float64, i::Int)
     uv = reinterpret(UInt64, v)
     j = 2i + 10490
     @assert m[j] == 0
@@ -419,11 +419,11 @@ end
 merge_uint64(x::UInt64, y::UInt64) = UInt128(x) | (UInt128(y) << 64)
 split_uint128(x::UInt128) = (x % UInt64, (x >>> 64) % UInt64)
 get_significand_sum_index(exponent::UInt64) = 5 + 3*2046 - 2exponent
-get_UInt128(m::Memory, i::Integer) = get_UInt128(m, _convert(Int, i))
-get_UInt128(m::Memory, i::Int) = merge_uint64(m[i], m[i+1])
-set_UInt128!(m::Memory, v::UInt128, i::Integer) = m[i:i+1] .= split_uint128(v)
+Base.@assume_effects :noub @inbounds get_UInt128(m::Memory, i::Integer) = get_UInt128(m, _convert(Int, i))
+Base.@assume_effects :noub @inbounds get_UInt128(m::Memory, i::Int) = merge_uint64(m[i], m[i+1])
+Base.@assume_effects :noub @inbounds set_UInt128!(m::Memory, v::UInt128, i::Integer) = m[i:i+1] .= split_uint128(v)
 
-function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase shift, on deletion of elements
+Base.@assume_effects :noub @inbounds function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase shift, on deletion of elements
     @assert signed(m[3]) < signed(m3)
     m[3] = m3
     # Story:
@@ -447,7 +447,7 @@ function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase sh
     m[4] = recompute_weights!(m, m3, m4, recompute_range)
 end
 
-function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease shift, on insertion of elements
+Base.@assume_effects :noub @inbounds function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease shift, on insertion of elements
     m3_old = m[3]
     m[3] = m3
     @assert signed(m3) < signed(m3_old)
@@ -477,7 +477,7 @@ function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease s
     m[4] = m4
 end
 
-function recompute_weights!(m, m3, m4, range)
+Base.@assume_effects :noub @inbounds function recompute_weights!(m, m3, m4, range)
     checkbounds(m, range)
     @inbounds for i in range
         j = 2i+2041
@@ -495,7 +495,7 @@ end
 
 get_alloced_indices(exponent::UInt64) = 10491 - exponent >> 3, exponent << 3 & 0x38
 
-function _set_to_zero!(m::Memory, i::Int)
+Base.@assume_effects :noub @inbounds function _set_to_zero!(m::Memory, i::Int)
     # Find the entry's pos in the edit map table
     j = 2i + 10490
     pos = m[j]
@@ -603,7 +603,7 @@ end
 
 ResizableWeights(len::Integer) = ResizableWeights(FixedSizeWeights(len))
 SemiResizableWeights(len::Integer) = SemiResizableWeights(FixedSizeWeights(len))
-function FixedSizeWeights(len::Integer)
+Base.@assume_effects :noub @inbounds function FixedSizeWeights(len::Integer)
     m = Memory{UInt64}(undef, allocated_memory(len))
     # m .= 0 # This is here so that a sparse rendering for debugging is easier TODO for tests: set this to 0xdeadbeefdeadbeed
     m[4:10491+2len] .= 0 # metadata and edit map need to be zeroed but the bulk does not
@@ -617,7 +617,7 @@ allocated_memory(length::Integer) = 10491 + 8*length # TODO for perf: consider g
 length_from_memory(allocated_memory::Integer) = (allocated_memory-10491) >> 3 # Int((allocated_memory-10491)/8)
 
 Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Integer) = resize!(w, Int(len))
-function Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Int)
+Base.@assume_effects :noub @inbounds function Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Int)
     m = w.m
     old_len = m[1]
     if len > old_len
@@ -634,12 +634,7 @@ function Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Int
     end
     w
 end
-"""
-Reallocate w with the size len, compacting w into that new memory.
-Any elements if w past len must be set to zero already (that's a general invariant for
-Weights, though, not just this function).
-"""
-function _resize!(w::ResizableWeights, len::Integer)
+Base.@assume_effects :noub @inbounds function _resize!(w::ResizableWeights, len::Integer)
     m = w.m
     old_len = m[1]
     m2 = Memory{UInt64}(undef, allocated_memory(len))
@@ -657,7 +652,7 @@ function _resize!(w::ResizableWeights, len::Integer)
     w
 end
 
-function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
+Base.@assume_effects :noub @inbounds function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
     dst_i = Int(2length_from_memory(length(dst)) + 10492)
     src_i = Int(2length_from_memory(length(src)) + 10492)
     next_free_space = src[10235]
@@ -732,7 +727,7 @@ function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
 end
 
 # Conform to the AbstractArray API
-Base.size(w::Weights) = (w.m[1],)
+Base.@assume_effects :noub @inbounds Base.size(w::Weights) = (w.m[1],)
 
 # Shoe-horn into the legacy DynamicDiscreteSampler API so that we can leverage existing tests
 struct WeightBasedSampler
