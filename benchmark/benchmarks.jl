@@ -68,7 +68,7 @@ function intermixed_h(n, σ)
     res
 end
 
-for n in [100, 1000, 10000], σ in [.1, 1, 10, 100]
+for n in [100, 1000, 10000, 100000], σ in [.1, 1, 10, 100]
     # TODO: try to use min over noise, average over rng, and max over treatment in analysis
     SUITE["constructor n=$n σ=$σ"] = @benchmarkable gaussian_weights_sequential_push($n, $σ)
     SUITE["sample n=$n σ=$σ"] = @benchmarkable gaussian_weights_sequential_push(n, σ) rand
