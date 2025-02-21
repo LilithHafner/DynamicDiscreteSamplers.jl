@@ -1,0 +1,12 @@
+name: Benchmark
+
+on:
+  pull_request
+
+permissions:
+  # Lets chairmarks-ci post bot comment to the pull request
+  pull-requests: write
+
+jobs:
+  benchmark:
+    uses: LilithHafner/chairmarks-ci/.github/workflows/comment.yml@main
