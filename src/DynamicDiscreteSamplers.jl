@@ -1,6 +1,6 @@
 module DynamicDiscreteSamplers
 
-export DynamicDiscreteSampler
+export ResizableWeights, SemiResizableWeights, FixedSizeWeights
 
 using Random
 
@@ -159,6 +159,7 @@ TODO
 # Trivial extensions:
 # push!, delete!
 
+Base.rand(rng::AbstractRNG, w::Weights, n::Integer) = [rand(rng, w) for _ in 1:n]
 Base.rand(rng::AbstractRNG, w::Weights) = _rand(rng, w.m)
 Base.getindex(w::Weights, i::Int) = _getindex(w.m, i)
 Base.setindex!(w::Weights, v, i::Int) = (_setindex!(w.m, Float64(v), i); w)
@@ -747,42 +748,11 @@ end
 # Conform to the AbstractArray API
 Base.size(w::Weights) = (w.m[1],)
 
-# Shoe-horn into the legacy DynamicDiscreteSampler API so that we can leverage existing tests
-struct WeightBasedSampler
-    w::ResizableWeights
-end
-WeightBasedSampler() = WeightBasedSampler(ResizableWeights(512))
-
-function Base.push!(wbs::WeightBasedSampler, index, weight)
-    index > length(wbs.w) && resize!(wbs.w, max(index, 2length(wbs.w)))
-    wbs.w[index] = weight
-    wbs
-end
-function Base.append!(wbs::WeightBasedSampler, inds::AbstractVector, weights::AbstractVector)
-    axes(inds) == axes(weights) || throw(DimensionMismatch("inds and weights have different axes"))
-    min_ind,max_ind = extrema(inds)
-    min_ind < 1 && throw(BoundsError(wbs.w, min_ind))
-    max_ind > length(wbs.w) && resize!(wbs.w, max(max_ind, 2length(wbs.w)))
-    for (i,w) in zip(inds, weights)
-        wbs.w[i] = w
-    end
-    wbs
-end
-function Base.delete!(wbs::WeightBasedSampler, index)
-    index ∈ eachindex(wbs.w) && wbs.w[index] != 0 || throw(ArgumentError("Element $index is not present"))
-    wbs.w[index] = 0
-    wbs
-end
-Base.rand(rng::AbstractRNG, wbs::WeightBasedSampler) = rand(rng, wbs.w)
-Base.rand(rng::AbstractRNG, wbs::WeightBasedSampler, n::Integer) = [rand(rng, wbs.w) for _ in 1:n]
-
-const DynamicDiscreteSampler = WeightBasedSampler
-
 # Precompile
-precompile(WeightBasedSampler, ())
-precompile(push!, (WeightBasedSampler, Int, Float64))
-precompile(delete!, (WeightBasedSampler, Int))
-precompile(rand, (typeof(Random.default_rng()), WeightBasedSampler))
-precompile(rand, (WeightBasedSampler,))
+precompile(ResizableWeights, (Int,))
+precompile(setindex!, (ResizableWeights, Float64, Int))
+precompile(getindex, (ResizableWeights, Int))
+precompile(rand, (typeof(Random.default_rng()), ResizableWeights))
+precompile(rand, (ResizableWeights,))
 
 end

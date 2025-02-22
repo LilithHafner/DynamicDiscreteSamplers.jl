@@ -10,64 +10,64 @@ using StatsBase
 @test DynamicDiscreteSamplers.DEBUG === true
 
 @testset "basic end to end tests" begin
-    ds = DynamicDiscreteSampler()
-    push!(ds, 1, 1.0)
-    push!(ds, 2, 2.0)
-    push!(ds, 3, 4.0)
-    delete!(ds, 1)
-    delete!(ds, 2)
+    ds = ResizableWeights(512)
+    ds[1] = 1.0
+    ds[2] = 2.0
+    ds[3] = 4.0
+    ds[1] = 0.0
+    ds[2] = 0.0
     @test rand(ds) == 3
-    push!(ds, 1, 3.0)
-    delete!(ds, 1)
+    ds[1] = 3.0
+    ds[1] = 0.0
     @test rand(ds) == 3
 
-    ds = DynamicDiscreteSampler()
-    push!(ds, 1, 5.0)
-    push!(ds, 2, 6.0)
-    delete!(ds, 1)
-    delete!(ds, 2)
+    ds = ResizableWeights(512)
+    ds[1] = 5.0
+    ds[2] = 6.0
+    ds[1] = 0.0
+    ds[2] = 0.0
+    ds = ResizableWeights(512)
+    ds[1] = 1.0
+    ds[2] = 2.0
+    ds[2] = 0.0
 
-    ds = DynamicDiscreteSampler()
-    push!(ds, 1, 1.0)
-    push!(ds, 2, 2.0)
-    delete!(ds, 2)
-
-    ds = DynamicDiscreteSampler()
+    ds = ResizableWeights(512)
     for i in 1:65
-        push!(ds, i, 2.0^i)
+        ds[i] = 2.0^i
     end
-    delete!(ds, 65)
-    push!(ds, 65, 1.0)
-    delete!(ds, 64)
+    ds[65] = 0.0
+    ds[65] = 1.0
+    ds[64] = 0.0
 end
 
 @testset "randomized end to end tests" begin
-    ds = DynamicDiscreteSampler()
+    ds = ResizableWeights(512)
     x = randperm(100)
     y = exp.(10*rand(100).-5);
-    push!.((ds,), x, y)
+    setindex!.((ds,), y, x)
     for _ in 1:100
         rand(ds)
     end
     for i in randperm(99)
-        delete!(ds, i)
+        ds[i] = 0.0
     end
     @test rand(ds) == 100
 end
 
 @testset "interleaved randomized end to end tests" begin
-    ds = DynamicDiscreteSampler()
+    ds = ResizableWeights(512)
     elements = Set{Int}()
     for i in 1:30000
         if rand() < 0.5
             i = rand(1:10000)
             if i ∉ elements
-                push!(ds, i, exp(100randn()))
+                i > length(ds) && resize!(ds, max(i, 2length(ds)))
+                ds[i] = exp(100randn())
                 push!(elements, i)
             end
         elseif length(elements) > 0
             element = rand(elements)
-            delete!(ds, element)
+            ds[element] = 0.0
             delete!(elements, element)
         end
 
@@ -78,11 +78,11 @@ end
 end
 
 @testset "Targeted statistical tests" begin
-    ds = DynamicDiscreteSampler()
+    ds = ResizableWeights(512)
     for i in 1:3
-        push!(ds, i, float(i))
+        ds[i] = float(i)
     end
-    delete!(ds, 2)
+    ds[2] = 0.0
     @test 0 < count(rand(ds) == 1 for _ in 1:4000) < 1200 # False positivity rate < 4e-13
 end
 
@@ -92,9 +92,9 @@ end
     range = 1:b
     weights = [Float64(i) for i in range]
 
-    ds1 = DynamicDiscreteSampler()
+    ds1 = ResizableWeights(512)
     for (i, w) in zip(range, weights)
-        push!(ds1, i, w)
+        ds1[i] = w
     end
 
     samples_counts = countmap([rand(rng, ds1) for _ in 1:10^5])
@@ -112,7 +112,7 @@ end
     @test pvalue(chisq_test) > 0.002
 
     for i in 1:(b ÷ 2)
-        delete!(ds1, i)
+        ds1[i] = 0.0
     end
 
     samples_counts = countmap([rand(rng, ds1) for _ in 1:10^5])
@@ -122,15 +122,18 @@ end
     chisq_test = ChisqTest(counts_est, ps_exact)
     @test pvalue(chisq_test) > 0.002
 
-    ds2 = DynamicDiscreteSampler()
+    ds2 = ResizableWeights(512)
 
-    append!(ds2, range, weights)
+    for (i, w) in zip(range, weights)
+        ds2[i] = w
+    end
 
-    delete!(ds2, 1)
-    delete!(ds2, 2)
+    ds2[1] = 0.0
+    ds2[2] = 0.0
 
-    push!(ds2, 2, 200.0)
-    push!(ds2, 1000, 1000.0)
+    ds2[2] = 200.0
+    resize!(ds2, 1024)
+    ds2[1000] = 1000.0
 
     samples_counts = countmap(rand(rng, ds2, 10^5))
     counts_est = [samples_counts[i] for i in [2:b..., 1000]]
@@ -141,11 +144,11 @@ end
     @test pvalue(chisq_test) > 0.002
 
     for i in [2:b..., 1000]
-        delete!(ds2, i)
+        ds2[i] = 0.0
     end
 
-    push!(ds2, 1, 1.0)
-    push!(ds2, 2, 2.0)
+    ds2[1] = 1.0
+    ds2[2] = 2.0
 
     samples_counts = countmap([rand(rng, ds2) for _ in 1:10^4])
     counts_est = [samples_counts[1], samples_counts[2]]
@@ -154,7 +157,7 @@ end
     chisq_test = ChisqTest(counts_est, ps_exact)
     @test pvalue(chisq_test) > 0.002
 
-    delete!(ds2, 2)
+    ds2[2] = 0.0
     @test unique([rand(rng, ds2) for _ in 1:10^3]) == [1]
 end
 
@@ -164,8 +167,8 @@ end
         t = current_task()
         (t.rngState0, t.rngState1, t.rngState2, t.rngState3, t.rngState4)
     end
-    ds = DynamicDiscreteSampler()
-    push!(ds, 1, 1.0)
+    ds = ResizableWeights(512)
+    ds[1] = 1.0
     state1 = getstate_default_rng()
     rand(ds)
     state2 = getstate_default_rng()
@@ -184,24 +187,26 @@ if "CI" in keys(ENV)
 end
 
 @testset "stress test huge probability swings" begin
-    ds = DynamicDiscreteSampler()
-    push!(ds, 1, 1e-300)
+    ds = ResizableWeights(512)
+    ds[1] = 1e-300
     @test rand(ds) == 1
-    push!(ds, 2, 1e300)
+    ds[2] = 1e300
     @test rand(ds) == 2
-    delete!(ds, 2)
+    ds[2] = 0.0
     @test rand(ds) == 1
 end
 
 include("weights.jl")
 
 function error_d03fb()
-    ds = DynamicDiscreteSampler()
+    ds = ResizableWeights(512)
     for i in 1:1_500
-        push!(ds, i, 0.1)
+        i > length(ds) && resize!(ds, max(i, 2length(ds)))
+        ds[i] = 0.1
     end
     for i in 1:25_000
-        push!(ds, rand(ds), exp(8randn()))
+        j = rand(ds)
+        ds[j] = exp(8randn())
     end
 end
 error_d03fb() # This threw AssertionError: 48 <= Base.top_set_bit(m[4]) <= 50 90% of the time on d03fb84d1b62272c5d6ab54c49e643af9b87201b
@@ -218,8 +223,8 @@ function error_d03fb_2(n)
 end
 error_d03fb_2.(1:15)
 
-ds = DynamicDiscreteSampler()
-push!(ds, 2, 1e308)
-delete!(ds, 2)
-push!(ds, 2, 1e308) # This previously threw
+ds = ResizableWeights(512)
+ds[2] = 1e308
+ds[2] = 0.0
+ds[2] = 1e308 # This previously threw
 @test rand(ds) == 2

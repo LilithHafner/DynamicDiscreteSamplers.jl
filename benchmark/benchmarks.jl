@@ -1,11 +1,23 @@
+
 using DynamicDiscreteSamplers
 
 t0 = time()
-ds = DynamicDiscreteSampler()
-push!(ds, 1, rand())
-push!(ds, 2, rand())
+if @isdefined DynamicDiscreteSampler
+    ds = DynamicDiscreteSampler()
+    push!(ds, 1, rand())
+    push!(ds, 2, rand())
+else
+    ds = ResizableWeights(512)
+    ds[1] = rand()
+    ds[2] = rand()
+end
 x = rand(ds) + rand(ds)
 t1 = time()
+
+
+if !(@isdefined DynamicDiscreteSampler)
+    include("weighted_sampler.jl")
+end
 
 using ChairmarksForAirspeedVelocity
 
