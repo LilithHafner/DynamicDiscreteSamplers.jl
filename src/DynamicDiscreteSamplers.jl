@@ -194,14 +194,14 @@ Base.setindex!(w::Weights, v, i::Int) = (_setindex!(w.m, Float64(v), i); w)
     j = 2i + 6133
     pos = m[j]
     len = m[j+1]
+    shift = leading_zeros(len-1)
 
     # Sample within level
     while true
-        r = rand(rng, UInt64)
-        k1 = (r>>leading_zeros(len-1))
-        k2 = _convert(Int, k1<<1+pos)
+        k1 = rand(rng, UInt64) >> shift
+        k2 = _convert(Int, 2k1 + pos)
         # TODO for perf: delete the k1 < len check by maintaining all the out of bounds m[k2] equal to 0
-        k1 < len && rand(rng, UInt64) < m[k2] && return Int(signed(m[k2+1]))
+        rand(rng, UInt64) < m[k2] * (k1 < len) && return _convert(Int, m[k2+1])
     end
 end
 
@@ -694,34 +694,34 @@ function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
     while src_i < next_free_space
 
         # Skip over abandoned groups TODO refactor these loops for clarity
-        target = signed(src[src_i+1])
-        while target < 0
-            if unsigned(target) < 0xc000000000000000 # empty non-abandoned group; let's clean it up
-                @assert 0x8000000000000001 <= unsigned(target) <= 0x80000000000007fe
-                exponent = unsigned(target) - 0x8000000000000000 # TODO for clarity: dry this
+        target = src[src_i+1]
+        while target >= 0x8000000000000000
+            if target < 0xc000000000000000 # empty non-abandoned group; let's clean it up
+                @assert 0x8000000000000001 <= target <= 0x80000000000007fe
+                exponent = target - 0x8000000000000000 # TODO for clarity: dry this
                 allocs_index, allocs_subindex = get_alloced_indices(exponent)
                 allocs_chunk = dst[allocs_index] # TODO for perf: consider not copying metadata on out of place compaction (and consider the impact here)
                 log2_allocated_size_p1 = allocs_chunk >> allocs_subindex % UInt8
-                allocated_size = 1<<(log2_allocated_size_p1-1)
-                new_chunk = allocs_chunk - UInt64(log2_allocated_size_p1) << allocs_subindex
+                allocated_size = 1 << (log2_allocated_size_p1-1)
+                new_chunk = allocs_chunk - _convert(UInt64, log2_allocated_size_p1) << allocs_subindex
                 dst[allocs_index] = new_chunk # zero out allocated size (this will force re-allocation so we can let the old, wrong pos info stand)
                 src_i += 2allocated_size # skip the group
             else # the decaying corpse of an abandoned group. Ignore it.
-                src_i -= 2target
+                src_i -= 2signed(target)
             end
             src_i >= next_free_space && @goto break_outer
-            target = signed(src[src_i+1])
+            target = src[src_i+1]
         end
 
         # Trace an element of the group back to the edit info table to find the group id
-        j = target + 10523
+        j = _convert(Int, target + 10523)
         exponent = src[j] & 2047
 
         # Lookup the group in the group location table to find its length (performance optimization for copying, necessary to decide new allocated size and update pos)
         # exponent of 0x00000000000007fe is index 6+3*2046
         # exponent of 0x0000000000000001 is index 4+5*2046
         group_length_index = _convert(Int, 4 + 3*2046 + 2exponent)
-        group_length = src[group_length_index]
+        group_length = _convert(Int, src[group_length_index])
 
         # Update group pos in level_location_info
         dst[group_length_index-1] += unsigned(Int64(dst_i-src_i))
@@ -743,7 +743,7 @@ function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
         # Adjust the pos entries in edit_map (bad memory order TODO: consider unzipping edit map to improve locality here)
         delta = unsigned(Int64(dst_i-src_i)) << 11
         dst[j] += delta
-        for k in 1:signed(group_length)-1 # TODO: add a benchmark that stresses compaction and try hoisting this bounds checking
+        for k in 1:group_length-1 # TODO: add a benchmark that stresses compaction and try hoisting this bounds checking
             target = src[src_i+2k+1]
             j = _convert(Int, target + 10523)
             dst[j] += delta
