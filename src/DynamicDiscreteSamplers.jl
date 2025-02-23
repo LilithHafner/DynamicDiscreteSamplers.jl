@@ -318,7 +318,7 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
     # update group total weight and total weight
     significand = 0x8000000000000000 | uv << 11
     weight_index = _convert(Int, exponent + 4)
-    significand_sum = update_significand_sum(m, weight_index, significand)
+    significand_sum = update_significand_sum(m, weight_index, significand) # Temporarily break the "weights are accurately computed" invariant
 
     if m[4] == 0 # if we were empty, set global shift (m[3]) so that m[4] will become ~2^40.
         m[3] = -24 - exponent
@@ -339,16 +339,18 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
             # Base.top_set_bit(significand_sum)+signed(exponent) + signed(m[3]) == 48
             # signed(m[3]) == 48 - Base.top_set_bit(significand_sum) - signed(exponent)
             m3 = 48 - Base.top_set_bit(significand_sum) - exponent
+            # The "weights are accurately computed" invariant is broken for weight_index, but the "sum(weights) == m[4]" invariant still holds
+            # set_global_shift_decrease! will do something wrong to weight_index, but preserve the "sum(weights) == m[4]" invariant.
             set_global_shift_decrease!(m, m3) # TODO for perf: special case all call sites to this function to take advantage of known shift direction and/or magnitude; also try outlining
             shift = signed(exponent + m3)
         end
         weight = _convert(UInt64, significand_sum << shift) + 1
 
         old_weight = m[weight_index]
-        m[weight_index] = weight
-        m4 = m[4]
+        m[weight_index] = weight # The "weights are accurately computed" invariant is now restored
+        m4 = m[4] # The "sum(weights) == m[4]" invariant is broken
         m4 -= old_weight
-        m4, o = Base.add_with_overflow(m4, weight)
+        m4, o = Base.add_with_overflow(m4, weight) # The "sum(weights) == m4" invariant now holds, though the computation overflows
         if o
             # If weights overflow (>2^64) then shift down by 16 bits
             m3 = m[3]-0x10
@@ -503,7 +505,7 @@ function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease s
     # In the case of adding a giant element, call this first, then add the element.
     # In any case, this only adjusts elements at or before m[2]
     # from the first index that previously could have had a weight > 1 to min(m[2], the first index that can't have a weight > 1) (never empty), set weights to 1 or 0
-    # from the first index that could have a weight > 1 to m[2] (possibly empty), recompute weights.
+    # from the first index that could have a weight > 1 to m[2] (possibly empty), shift weights by delta.
     m2 = signed(m[2])
     i1 = -signed(m3)-117 # see above, this is the first index that could have weight > 1 (anything after this will have weight 1 or 0)
     i1_old = -signed(m3_old)-117 # anything before this is already weight 1 or 0
@@ -520,7 +522,14 @@ function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease s
         m[i] = weight
         m4 += weight-old_weight
     end
-    m4 = recompute_weights!(m, m3, m4, recompute_range)
+
+    delta = m3_old-m3
+    checkbounds(m, recompute_range)
+    @inbounds for i in recompute_range
+        old_weight = m[i]
+        old_weight <= 1 && continue # in this case, the weight was and still is 0 or 1
+        m4 += update_weight!(m, i, (old_weight-1) >> delta)
+    end
 
     m[4] = m4
 end
