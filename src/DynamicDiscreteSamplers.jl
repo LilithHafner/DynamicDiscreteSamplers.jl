@@ -1,5 +1,7 @@
 module DynamicDiscreteSamplers
 
+__init__() = sleep(1)
+
 export DynamicDiscreteSampler
 
 using Random
