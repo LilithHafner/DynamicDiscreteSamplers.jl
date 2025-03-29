@@ -240,6 +240,13 @@ w[1] = 0.95
 w[2] = 6.41e14
 verify(w.m)
 
+# This test catches a bug that was not revealed by the RNG tests below
+w = DynamicDiscreteSamplers.FixedSizeWeights(3);
+w[1] = 1.5
+w[2] = prevfloat(1.5)
+w[3] = 2^25
+verify(w.m)
+
 # This test catches a bug that was not revealed by the RNG tests below.
 # The final line is calibrated to have about a 50% fail rate on that bug
 # and run in about 3 seconds:

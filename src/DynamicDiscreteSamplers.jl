@@ -170,23 +170,24 @@ Base.setindex!(w::Weights, v, i::Int) = (_setindex!(w.m, Float64(v), i); w)
     @label reject
 
     # Select level
-    x = rand(rng, Base.OneTo(m[4]))
+    x = @inline rand(rng, Random.Sampler(rng, Base.OneTo(m[4]), Val(1)))
     i = _convert(Int, m[2])
-    local mi
-    while #=i < 2046+4=# true
-        mi = m[i]
+    mi = m[i]
+    @inbounds while i > 5
         x <= mi && break
         x -= mi
         i -= 1
+        mi = m[i]
     end
 
-    if x == mi # mi is the weight rounded down plus 1. If they are equal than we should refine further and possibly reject.
+    if x >= mi # mi is the weight rounded down plus 1. If they are equal than we should refine further and possibly reject.
         # Low-probability rejection to improve accuracy from very close to perfect.
         # This branch should typically be followed with probability < 2^-21. In cases where
         # the probability is higher (i.e. m[4] < 2^32), _rand_slow_path will mutate m by
         # modifying m[3] and recomputing approximate weights to increase m[4] above 2^32.
         # This branch is still O(1) but constant factors don't matter except for in the case
         # of repeated large swings in m[4] with calls to rand interspersed.
+        x > mi && error("This should be unreachable!")
         if @noinline _rand_slow_path(rng, m, i)
             @goto reject
         end
@@ -307,7 +308,8 @@ end
 function update_significand_sum(m, i, delta)
     j = _convert(Int, 2i+2041)
     significand_sum = get_significand_sum(m, i) + delta
-    m[j:j+1] .= (significand_sum % UInt64, (significand_sum >>> 64) % UInt64)
+    m[j] = significand_sum % UInt64
+    m[j+1] = (significand_sum >>> 64) % UInt64
     significand_sum
 end
 
@@ -320,7 +322,7 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
     # update group total weight and total weight
     significand = 0x8000000000000000 | uv << 11
     weight_index = _convert(Int, exponent + 4)
-    significand_sum = update_significand_sum(m, weight_index, significand)
+    significand_sum = update_significand_sum(m, weight_index, significand) # Temporarily break the "weights are accurately computed" invariant
 
     if m[4] == 0 # if we were empty, set global shift (m[3]) so that m[4] will become ~2^40.
         m[3] = -24 - exponent
@@ -341,16 +343,18 @@ function _set_from_zero!(m::Memory, v::Float64, i::Int)
             # Base.top_set_bit(significand_sum)+signed(exponent) + signed(m[3]) == 48
             # signed(m[3]) == 48 - Base.top_set_bit(significand_sum) - signed(exponent)
             m3 = 48 - Base.top_set_bit(significand_sum) - exponent
+            # The "weights are accurately computed" invariant is broken for weight_index, but the "sum(weights) == m[4]" invariant still holds
+            # set_global_shift_decrease! will do something wrong to weight_index, but preserve the "sum(weights) == m[4]" invariant.
             set_global_shift_decrease!(m, m3) # TODO for perf: special case all call sites to this function to take advantage of known shift direction and/or magnitude; also try outlining
             shift = signed(exponent + m3)
         end
         weight = _convert(UInt64, significand_sum << shift) + 1
 
         old_weight = m[weight_index]
-        m[weight_index] = weight
-        m4 = m[4]
+        m[weight_index] = weight # The "weights are accurately computed" invariant is now restored
+        m4 = m[4] # The "sum(weights) == m[4]" invariant is broken
         m4 -= old_weight
-        m4, o = Base.add_with_overflow(m4, weight)
+        m4, o = Base.add_with_overflow(m4, weight) # The "sum(weights) == m4" invariant now holds, though the computation overflows
         if o
             # If weights overflow (>2^64) then shift down by 16 bits
             m3 = m[3]-0x10
@@ -493,43 +497,9 @@ function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase sh
     i <= -signed(m3)-122+4
     So for -signed(m3)-118 < i, we could need to adjust the ith weight
     =#
-    recompute_range = max(5, -signed(m3)-117):m2 # TODO It would be possible to scale this range with length (m[1]) in which case testing could be stricter and performance could be (marginally) better, though not in large cases so possibly not worth doing at all)
-    m[4] = recompute_weights!(m, m3, m4, recompute_range)
-end
+    r0 = max(5, -signed(m3)-117)
+    r1 = m2 # TODO It would be possible to scale this range with length (m[1]) in which case testing could be stricter and performance could be (marginally) better, though not in large cases so possibly not worth doing at all)
 
-function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease shift, on insertion of elements
-    m3_old = m[3]
-    m[3] = m3
-    @assert signed(m3) < signed(m3_old)
-
-    # In the case of adding a giant element, call this first, then add the element.
-    # In any case, this only adjusts elements at or before m[2]
-    # from the first index that previously could have had a weight > 1 to min(m[2], the first index that can't have a weight > 1) (never empty), set weights to 1 or 0
-    # from the first index that could have a weight > 1 to m[2] (possibly empty), recompute weights.
-    m2 = signed(m[2])
-    i1 = -signed(m3)-117 # see above, this is the first index that could have weight > 1 (anything after this will have weight 1 or 0)
-    i1_old = -signed(m3_old)-117 # anything before this is already weight 1 or 0
-    flatten_range = max(i1_old, 5):min(m2, i1-1)
-    recompute_range = max(i1, 5):m2
-    # From the level where one element contributes 2^64 to the level where one element contributes 1 is 64, and from there to the level where 2^64 elements contributes 1 is another 2^64.
-    @assert length(flatten_range) <= 128
-    @assert length(recompute_range) <= 128
-
-    checkbounds(m, flatten_range)
-    @inbounds for i in flatten_range # set nonzeros to 1
-        old_weight = m[i]
-        weight = old_weight != 0
-        m[i] = weight
-        m4 += weight-old_weight
-    end
-    m4 = recompute_weights!(m, m3, m4, recompute_range)
-
-    m[4] = m4
-end
-
-function recompute_weights!(m::Memory{UInt64}, m3::UInt64, m4::UInt64, range::UnitRange{Int64})
-    isempty(range) && return m4
-    r0,r1 = extrema(range)
     # shift = signed(i-4+m3)
     # weight = significand_sum == 0 ? 0 : UInt64(significand_sum << shift) + 1
     # shift < -64; the low 64 bits are shifted off.
@@ -549,8 +519,47 @@ function recompute_weights!(m::Memory{UInt64}, m3::UInt64, m4::UInt64, range::Un
         shift = signed(i-4+m3)
         m4 += update_weight!(m, i, significand_sum << shift)
     end
-    m4
+
+    m[4] = m4
 end
+
+function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease shift, on insertion of elements
+    m3_old = m[3]
+    m[3] = m3
+    @assert signed(m3) < signed(m3_old)
+
+    # In the case of adding a giant element, call this first, then add the element.
+    # In any case, this only adjusts elements at or before m[2]
+    # from the first index that previously could have had a weight > 1 to min(m[2], the first index that can't have a weight > 1) (never empty), set weights to 1 or 0
+    # from the first index that could have a weight > 1 to m[2] (possibly empty), shift weights by delta.
+    m2 = signed(m[2])
+    i1 = -signed(m3)-117 # see above, this is the first index that could have weight > 1 (anything after this will have weight 1 or 0)
+    i1_old = -signed(m3_old)-117 # anything before this is already weight 1 or 0
+    flatten_range = max(i1_old, 5):min(m2, i1-1)
+    recompute_range = max(i1, 5):m2
+    # From the level where one element contributes 2^64 to the level where one element contributes 1 is 64, and from there to the level where 2^64 elements contributes 1 is another 2^64.
+    @assert length(flatten_range) <= 128
+    @assert length(recompute_range) <= 128
+
+    checkbounds(m, flatten_range)
+    @inbounds for i in flatten_range # set nonzeros to 1
+        old_weight = m[i]
+        weight = old_weight != 0
+        m[i] = weight
+        m4 += weight-old_weight
+    end
+
+    delta = m3_old-m3
+    checkbounds(m, recompute_range)
+    @inbounds for i in recompute_range
+        old_weight = m[i]
+        old_weight <= 1 && continue # in this case, the weight was and still is 0 or 1
+        m4 += update_weight!(m, i, (old_weight-1) >> delta)
+    end
+
+    m[4] = m4
+end
+
 Base.@propagate_inbounds function update_weight!(m::Memory{UInt64}, i, shifted_significand_sum)
     weight = _convert(UInt64, shifted_significand_sum) + 1
     old_weight = m[i]
