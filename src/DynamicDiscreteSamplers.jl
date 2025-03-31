@@ -169,8 +169,14 @@ Base.setindex!(w::Weights, v, i::Int) = (_setindex!(w.m, Float64(v), i); w)
 
     # Select level
     x = @inline rand(rng, Random.Sampler(rng, Base.OneTo(m[4]), Val(1)))
+
     i = _convert(Int, m[2])
     mi = m[i]
+    if mi == 0
+        i = set_last_nonzero_level_decrease!(m, i)
+        mi = m[i]
+    end
+
     @inbounds while i > 5
         x <= mi && break
         x -= mi
@@ -262,6 +268,19 @@ function _rand_slow_path(rng::AbstractRNG, m::Memory{UInt64}, i)
         x < target && return false
         shift >= 0 && return false
     end
+end
+
+function set_last_nonzero_level_decrease!(m, m2)
+    level_weights_nonzero_index,level_weights_nonzero_subindex = get_level_weights_nonzero_indices(m2-5)
+    chunk = m[level_weights_nonzero_index]
+    while chunk == 0 # Find the new m[2]
+        m2 -= 64
+        level_weights_nonzero_index -= 1
+        chunk = m[level_weights_nonzero_index]
+    end
+    m2 += 63 - trailing_zeros(chunk) - level_weights_nonzero_subindex - 1
+    m[2] = _convert(UInt64, m2)
+    return m2
 end
 
 function _getindex(m::Memory{UInt64}, i::Int)
@@ -522,6 +541,12 @@ function set_global_shift_increase!(m::Memory, m2, m3::UInt64, m4) # Increase sh
 end
 
 function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease shift, on insertion of elements
+    
+    m2 = _convert(Int, m[2])
+    if m[m2] == 0
+        m2 = set_last_nonzero_level_decrease!(m, m2)
+    end
+
     m3_old = m[3]
     m[3] = m3
     @assert signed(m3) < signed(m3_old)
@@ -530,7 +555,6 @@ function set_global_shift_decrease!(m::Memory, m3::UInt64, m4=m[4]) # Decrease s
     # In any case, this only adjusts elements at or before m[2]
     # from the first index that previously could have had a weight > 1 to min(m[2], the first index that can't have a weight > 1) (never empty), set weights to 1 or 0
     # from the first index that could have a weight > 1 to m[2] (possibly empty), shift weights by delta.
-    m2 = signed(m[2])
     i1 = -signed(m3)-117 # see above, this is the first index that could have weight > 1 (anything after this will have weight 1 or 0)
     i1_old = -signed(m3_old)-117 # anything before this is already weight 1 or 0
     flatten_range = max(i1_old, 5):min(m2, i1-1)
@@ -566,7 +590,7 @@ Base.@propagate_inbounds function update_weight!(m::Memory{UInt64}, i, shifted_s
 end
 
 get_alloced_indices(exponent::UInt64) = _convert(Int, 10268 + exponent >> 3), exponent << 3 & 0x38
-get_level_weights_nonzero_indices(exponent::UInt64) = _convert(Int, 10235 + exponent >> 6), exponent & 0x3f
+get_level_weights_nonzero_indices(exponent) = _convert(Int, 10235 + exponent >> 6), exponent & 0x3f
 
 function _set_to_zero!(m::Memory, i::Int)
     # Find the entry's pos in the edit map table
@@ -586,23 +610,9 @@ function _set_to_zero!(m::Memory, i::Int)
     m4 = m[4]
     m4 -= old_weight
     if significand_sum == 0 # We zeroed out a group
-        level_weights_nonzero_index,level_weights_nonzero_subindex = get_level_weights_nonzero_indices(exponent)
-        chunk = m[level_weights_nonzero_index] &= ~(0x8000000000000000 >> level_weights_nonzero_subindex)
         m[weight_index] = 0
-        if m4 == 0 # There are no groups left
-            m[2] = 4
-        else
-            m2 = m[2]
-            if weight_index == m2 # We zeroed out the first group
-                while chunk == 0 # Find the new m[2]
-                    level_weights_nonzero_index -= 1
-                    m2 -= 64
-                    chunk = m[level_weights_nonzero_index]
-                end
-                m2 += 63-trailing_zeros(chunk) - level_weights_nonzero_subindex
-                m[2] = m2
-            end
-        end
+        level_weights_nonzero_index,level_weights_nonzero_subindex = get_level_weights_nonzero_indices(exponent)
+        m[level_weights_nonzero_index] &= ~(0x8000000000000000 >> level_weights_nonzero_subindex)
     else # We did not zero out a group
         shift = signed(exponent + m[3])
         new_weight = _convert(UInt64, significand_sum << shift) + 1

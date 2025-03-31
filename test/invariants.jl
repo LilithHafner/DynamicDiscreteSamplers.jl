@@ -1,7 +1,8 @@
 isdefined(@__MODULE__, :Memory) || const Memory = Vector # Compat for Julia < 1.11
 _get_UInt128(m::Memory, i::Integer) = UInt128(m[i]) | (UInt128(m[i+1]) << 64)
 _length_from_memory(allocated_memory::Integer) = Int((allocated_memory-10523)/7)
-function verify_weights(m::Memory)
+function verify_weights(w::DynamicDiscreteSamplers.Weights)
+    m = w.m
     m3 = m[3]
     for i in 5:2050
         shift = signed(i - 4 + m3)
@@ -14,10 +15,16 @@ function verify_weights(m::Memory)
     end
 end
 
-function verify_m2(m::Memory)
-    @assert m[2] == findlast(i -> i == 4 || m[i] != 0, 1:2050)
+function verify_m2(w::DynamicDiscreteSamplers.Weights)
+    m = w.m
+    @assert m[2] >= findlast(i -> i == 4 || m[i] != 0, 1:2050)
+    if m[4] != 0
+        rand(w)
+        @assert m[2] == findlast(i -> m[i] != 0, 1:2050)
+    end
 end
-function verify_m4(m::Memory)
+function verify_m4(w::DynamicDiscreteSamplers.Weights)
+    m = w.m
     m4 = zero(UInt64)
     for i in 5:2050
         m4 = Base.checked_add(m4, m[i])
@@ -26,7 +33,8 @@ function verify_m4(m::Memory)
     # @assert m4 == 0 || UInt64(2)^32 <= m4 # This invariant is now maintained loosely and lazily
 end
 
-function verify_edit_map_points_to_correct_target(m::Memory)
+function verify_edit_map_points_to_correct_target(w::DynamicDiscreteSamplers.Weights)
+    m = w.m
     filled_len = m[1]
     len = _length_from_memory(length(m))
     for i in 1:len
@@ -39,9 +47,9 @@ function verify_edit_map_points_to_correct_target(m::Memory)
     end
 end
 
-function verify(m::Memory)
-    verify_weights(m)
-    verify_m2(m)
-    verify_m4(m)
-    verify_edit_map_points_to_correct_target(m)
+function verify(w::DynamicDiscreteSamplers.Weights)
+    verify_weights(w)
+    verify_m2(w)
+    verify_m4(w)
+    verify_edit_map_points_to_correct_target(w)
 end

@@ -205,13 +205,13 @@ w = DynamicDiscreteSamplers.ResizableWeights(31)
 w[11] = 9.923269000574892e-8
 w[23] = 0.9876032886161744
 w[31] = 1.1160998022859043
-verify(w.m)
+verify(w)
 
 w = DynamicDiscreteSamplers.FixedSizeWeights(10)
 w[1] = floatmin(Float64)
 w[2] = floatmax(Float64)
 w[2] = 0 # This previously threw an assertion error due to overflow when estimating sum of level weights
-verify(w.m)
+verify(w)
 
 w = DynamicDiscreteSamplers.FixedSizeWeights(9)
 v = zeros(9)
@@ -232,20 +232,20 @@ v[8] = w[8] = 0.72
 v[5] = w[5] = 0.20
 v[1] = w[1] = 0.71
 v[3] = w[3] = 0.92
-verify(w.m)
+verify(w)
 @test v == w
 
 w = DynamicDiscreteSamplers.ResizableWeights(2)
 w[1] = 0.95
 w[2] = 6.41e14
-verify(w.m)
+verify(w)
 
 # This test catches a bug that was not revealed by the RNG tests below
 w = DynamicDiscreteSamplers.FixedSizeWeights(3);
 w[1] = 1.5
 w[2] = prevfloat(1.5)
 w[3] = 2^25
-verify(w.m)
+verify(w)
 
 # This test catches a bug that was not revealed by the RNG tests below.
 # The final line is calibrated to have about a 50% fail rate on that bug
@@ -255,7 +255,7 @@ w .= repeat(ldexp.(1.0, -1022:1023), inner=2048)
 w[(2046-16)*2048+1:2046*2048] .= 0
 @test w.m[4] < 2.0^32*1.1 # Confirm that we created an interesting condition
 f(w,n) = sum(Int64(rand(w)) for _ in 1:n)
-verify(w.m)
+verify(w)
 @test f(w, 2^27) ≈ 4.1543685e6*2^27 rtol=1e-6 # This should fail less than 1e-40 of the time
 
 # These tests have never revealed a bug that was not revealed by one of the above tests:
@@ -304,7 +304,7 @@ try
             resize = rand(Bool) # Some behavior emerges when not resizing for a long period
             for _ in 1:rand((10,100,3000))
                 @test v == w
-                verify(w.m)
+                verify(w)
                 if rand() < .01
                     sm = sum(v)
                     sm == 0 || statistical_test(w, v ./ sm)
