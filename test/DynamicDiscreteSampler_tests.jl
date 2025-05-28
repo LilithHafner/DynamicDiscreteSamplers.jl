@@ -147,6 +147,17 @@ end
 
     delete!(ds2, 2)
     @test unique([rand(rng, ds2) for _ in 1:10^3]) == [1]
+
+    ds3 = DynamicDiscreteSampler()
+    push!(ds3, 1, 2.0^-1024 + 2.0^-1023) # subnormal
+    push!(ds3, 2, 2.0^-1023) # subnormal
+    push!(ds3, 3, 2.0^-1022)
+    samples_counts = countmap([rand(rng, ds3) for _ in 1:10^4])
+    counts_est = [samples_counts[i] for i in 1:3]
+    ps_exact = [1/3, 2/9, 4/9]
+
+    chisq_test = ChisqTest(counts_est, ps_exact)
+    @test pvalue(chisq_test) > 0.002
 end
 
 

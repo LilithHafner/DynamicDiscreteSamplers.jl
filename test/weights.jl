@@ -212,6 +212,9 @@ w[1] = floatmin(Float64)
 w[2] = floatmax(Float64)
 w[2] = 0 # This previously threw an assertion error due to overflow when estimating sum of level weights
 verify(w.m)
+w[1] = eps(0.0)
+@test w[1] == eps(0.0)
+verify(w.m)
 
 # Confirm that FixedSizeWeights cannot be resized:
 w = DynamicDiscreteSamplers.FixedSizeWeights(10)
