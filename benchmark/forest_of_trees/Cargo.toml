@@ -1,9 +1,0 @@
-[package]
-name = "benchmark_mvn"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-dynamic-weighted-index = "0.1.0"
-pcg_rand = "0.13.0"
-rand = "0.8.5"
