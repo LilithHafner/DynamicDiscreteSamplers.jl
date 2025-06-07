@@ -8,16 +8,16 @@ function _rand!(rng::AbstractRNG, samples::AbstractArray, m::Memory{UInt64})
     n < 100 && return fill_samples!(rng, m, samples)
     max_i = _convert(Int, m[2])
     min_i = 5
-    min_j = 10235
-    for j in 10235:10266
+    min_j = 10236
+    for j in 10236:10267
         chunk = m[j]
         if chunk != 0
             min_j = j
-            min_i = (j-10235) << 6 + leading_zeros(chunk) + 4
+            min_i = (j-10236) << 6 + leading_zeros(chunk) + 5
             break
         end
     end
-    k = sum(count_ones(m[j]) for j in min_j:10266)
+    k = sum(count_ones(m[j]) for j in min_j:10267)
     n < 100*(k^0.72) && return fill_samples!(rng, m, samples)
     inds = Vector{Int}(undef, k)
     weights = Vector{BigInt}(undef, k)
@@ -34,7 +34,7 @@ function _rand!(rng::AbstractRNG, samples::AbstractArray, m::Memory{UInt64})
     for i in 1:k
         c = counts[i]
         c == 0 && continue
-        j = 2*inds[i] + 6133
+        j = 2*inds[i] + 6132
         pos = m[j]
         len = m[j+1]
         for _ in 1:c
