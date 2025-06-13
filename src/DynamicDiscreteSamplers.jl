@@ -738,7 +738,14 @@ function _resize!(w::ResizableWeights, len::Integer)
     w
 end
 
+if DEBUG # To enable tests to track how often we compact
+    const COMPACT_TRACKER = Ref(false)
+end
+
 function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
+    if DEBUG
+        COMPACT_TRACKER[] = true
+    end
     dst_i = length_from_memory(length(dst)) + 10795
     src_i = length_from_memory(length(src)) + 10795
     next_free_space = src[10531]
