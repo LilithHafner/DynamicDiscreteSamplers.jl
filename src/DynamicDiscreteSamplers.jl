@@ -150,7 +150,7 @@ TODO
 
 # 10795+len..10794+len   edit_map (maps index to current location in sub_weights)::[(pos<<11 + exponent)::UInt64] (zero means zero; fixed location, always at the start. Force full realloc when it OOMs. (len refers to allocated length, not m[1])
 
-# 10795+len..10794+7len  sub_weights (woven with targets)::[[significand::UInt64, target::Int}]]. allocated_len == length_from_memory(length(m)) (len refers to allocated length, not m[1])
+# 10795+len..10794+8len  sub_weights (woven with targets)::[[significand::UInt64, target::Int}]]. allocated_len == length_from_memory(length(m)) (len refers to allocated length, not m[1]). Note that there will sometimes be a single unusable word at the end of sub_weights
 
 # significands are stored in sub_weights with their implicit leading 1 added
 #     normals: element_from_sub_weights = 0x8000000000000000 | (reinterpret(UInt64, weight::Float64) << 11)
@@ -694,8 +694,8 @@ function initialize_empty(len::Int)
     m[10531] = 10795+len
     m
 end
-allocated_memory(length::Int) = 10794 + 7*length # TODO for perf: consider giving some extra constant factor allocation to avoid repeated compaction at small sizes
-length_from_memory(allocated_memory::Int) = Int((allocated_memory-10794)/7)
+allocated_memory(length::Int) = 10794 + 8*length # TODO for perf: consider giving some extra constant factor allocation to avoid repeated compaction at small sizes
+length_from_memory(allocated_memory::Int) = Int((allocated_memory-10794)/8)
 
 Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Integer) = resize!(w, Int(len))
 function Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Int)
