@@ -320,6 +320,16 @@ try
             w = DynamicDiscreteSamplers.ResizableWeights(len)
             v = fill(0.0, len)
             resize = rand(Bool) # Some behavior emerges when not resizing for a long period
+            opcount = 0
+            m10531 = 0
+            function track_and_test_compaction_frequency(w)
+                opcount += 1
+                if w.m[10531] < m10531 # compaction has occurred
+                    @assert opcount > length(w)/8
+                    opcount = 0
+                end
+                m10531 = w.m[10531]
+            end
             for _ in 1:rand((10,100,3000))
                 @test v == w
                 verify(w.m)
@@ -333,11 +343,13 @@ try
                     push!(LOG, i => 0)
                     v[i] = 0
                     w[i] = 0
+                    track_and_test_compaction_frequency(w)
                 elseif x < .4 && !all(iszero, v)
                     i = rand(w)
                     push!(LOG, i => 0)
                     v[i] = 0
                     w[i] = 0
+                    track_and_test_compaction_frequency(w)
                 elseif x < .9 || !resize
                     i = rand(eachindex(v))
                     x = if x < .41
@@ -348,12 +360,14 @@ try
                     push!(LOG, i => x)
                     v[i] = x
                     w[i] = x
+                    track_and_test_compaction_frequency(w)
                 else
                     l_old = length(v)
                     l_new = rand(1:rand((10,100,3000)))
                     push!(LOG, resize! => l_new)
                     resize!(v, l_new)
                     resize!(w, l_new)
+                    m10531 = w.m[10531]
                     if l_new > l_old
                         v[l_old+1:l_new] .= 0
                     end

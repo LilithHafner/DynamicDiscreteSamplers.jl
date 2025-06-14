@@ -217,7 +217,77 @@ function pathological_compaction_update!(w)
         w[end] = 2^i
     end
 end
-SUITE["pathological compaction"] = @benchmarkable pathological_compaction_setup pathological_compaction_update!
+SUITE["pathological old compaction (6-op)"] = @benchmarkable pathological_compaction_setup pathological_compaction_update!
+
+function pathological_tiny_compaction_setup()
+    w = FixedSizeWeights(1)
+    pathological_compaction_update!(w)
+    w
+end
+function pathological_tiny_compaction_update!(w)
+    for i in 1:6
+        w[end] = 2^i
+    end
+end
+SUITE["pathological tiny compaction (6-op)"] = @benchmarkable pathological_tiny_compaction_setup pathological_tiny_compaction_update!
+
+function pathological_small_compaction_setup()
+    FixedSizeWeights([1,1,1,1,2,2,2,2,4,4,8,8,8])
+end
+function pathological_small_compaction_update!(w)
+    w[9] = 1
+    w[10] = 2
+    w[9] = 8
+    w[10] = 8
+    w[10] = 16
+    w[11] = 32
+    w[12] = 16
+    w[13] = 32
+    w[9] = 16
+    w[11] = 1
+    w[13] = 2
+    w[11] = 16
+    w[13] = 16
+    w[11] = 8
+    w[9] = 4
+    w[10] = 4
+    w[12] = 8
+    w[13] = 8
+end
+SUITE["pathological small compaction (18-op)"] = @benchmarkable pathological_small_compaction_setup pathological_small_compaction_update!
+
+function pathological_medium_compaction_setup()
+    FixedSizeWeights(vcat(fill(1, 66), repeat(2.0 .^ (1:66), inner=128)))
+end
+function pathological_medium_compaction_update!(w)
+    for i in 1:66
+        w[i] = 2.0^i
+    end
+    for i in 1:18
+        for j in 1:33
+            w[2j-1] = 2.0^(-2i)
+            w[2j] = 2.0^(-2i-1)
+        end
+    end
+end
+SUITE["pathological medium compaction (1254-op)"] = @benchmarkable pathological_medium_compaction_setup pathological_medium_compaction_update!
+
+
+function pathological_large_compaction_setup()
+    FixedSizeWeights(vcat(fill(1, 2^10+2), repeat(2.0 .^ (-2:2^10-1), inner=2^10)))
+end
+function pathological_large_compaction_update!(w)
+    for i in 1:2^10+2
+        w[i] = 2.0^(i-3)
+    end
+    for i in 2:130
+        for j in 1:2^9+1
+            w[2j-1] = 2.0^(-2i)
+            w[2j] = 2.0^(-2i-1)
+        end
+    end
+end
+SUITE["pathological large compaction (133380-op)"] = @benchmarkable pathological_large_compaction_setup pathological_large_compaction_update!
 
 include("code_size.jl")
 _code_size = code_size(dirname(pathof(DynamicDiscreteSamplers)))
