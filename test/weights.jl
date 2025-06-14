@@ -2,7 +2,6 @@ using DynamicDiscreteSamplers, Test
 
 @test DynamicDiscreteSamplers.FixedSizeWeights(10) isa DynamicDiscreteSamplers.FixedSizeWeights
 @test DynamicDiscreteSamplers.ResizableWeights(10) isa DynamicDiscreteSamplers.ResizableWeights
-@test DynamicDiscreteSamplers.SemiResizableWeights(10) isa DynamicDiscreteSamplers.SemiResizableWeights
 
 w = DynamicDiscreteSamplers.FixedSizeWeights(10)
 
@@ -226,10 +225,6 @@ verify(w.m)
 w = DynamicDiscreteSamplers.FixedSizeWeights(10)
 @test_throws MethodError resize!(w, 20)
 @test_throws MethodError resize!(w, 5)
-w2 = DynamicDiscreteSamplers.SemiResizableWeights(w)
-resize!(w2, 5)
-@test length(w2) == 5
-@test length(w) == 10 # The fixed size has not changed
 
 w = DynamicDiscreteSamplers.FixedSizeWeights(9)
 v = zeros(9)

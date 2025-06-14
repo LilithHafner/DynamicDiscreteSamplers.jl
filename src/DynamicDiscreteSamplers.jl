@@ -1,7 +1,7 @@
 module DynamicDiscreteSamplers
 
 VERSION >= v"1.11.0-DEV.469" && eval(Meta.parse("public Weights"))
-export FixedSizeWeights, ResizableWeights, SemiResizableWeights
+export FixedSizeWeights, ResizableWeights
 
 using Random
 
@@ -36,16 +36,6 @@ An object that confomrs the the `Weights` interface and can be resized.
 mutable struct ResizableWeights <: Weights
     m::Memory{UInt64}
     ResizableWeights(len::Integer) = new(initialize_empty(Int(len)))
-end
-"""
-    SemiResizableWeights <: Weights
-
-An object that confomrs the the `Weights` interface and can be resized, but only to sizes
-at most as large as it's original size.
-"""
-struct SemiResizableWeights <: Weights
-    m::Memory{UInt64}
-    SemiResizableWeights(len::Integer) = new(initialize_empty(Int(len)))
 end
 
 #===== Overview  ======
@@ -697,14 +687,13 @@ end
 allocated_memory(length::Int) = 10794 + 7*length # TODO for perf: consider giving some extra constant factor allocation to avoid repeated compaction at small sizes
 length_from_memory(allocated_memory::Int) = Int((allocated_memory-10794)/7)
 
-Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Integer) = resize!(w, Int(len))
-function Base.resize!(w::Union{SemiResizableWeights, ResizableWeights}, len::Int)
+Base.resize!(w::ResizableWeights, len::Integer) = resize!(w, Int(len))
+function Base.resize!(w::ResizableWeights, len::Int)
     m = w.m
     old_len = m[1]
     if len > old_len
         am = allocated_memory(len)
         if am > length(m)
-            w isa SemiResizableWeights && throw(ArgumentError("Cannot increase the size of a SemiResizableWeights above its original allocated size. Try using a ResizableWeights instead."))
             _resize!(w, len)
         else
             m[1] = len
