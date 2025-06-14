@@ -737,6 +737,7 @@ function _resize!(w::ResizableWeights, len::Integer)
     w.m = m2
     w
 end
+
 function compact!(dst::Memory{UInt64}, src::Memory{UInt64})
     dst_i = length_from_memory(length(dst)) + 10795
     src_i = length_from_memory(length(src)) + 10795
