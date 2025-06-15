@@ -35,6 +35,8 @@ An object that confomrs the the `Weights` interface and can be resized.
 """
 mutable struct ResizableWeights <: Weights
     m::Memory{UInt64}
+    global _ResizableWeights
+    _ResizableWeights(m::Memory{UInt64}) = new(m)
     ResizableWeights(len::Integer) = new(initialize_empty(Int(len)))
 end
 """
@@ -45,6 +47,8 @@ at most as large as it's original size.
 """
 struct SemiResizableWeights <: Weights
     m::Memory{UInt64}
+    global _SemiResizableWeights
+    _SemiResizableWeights(m::Memory{UInt64}) = new(m)
     SemiResizableWeights(len::Integer) = new(initialize_empty(Int(len)))
 end
 
@@ -186,6 +190,7 @@ Random.gentype(::Type{<:Weights}) = Int
 Base.getindex(w::Weights, i::Int) = _getindex(w.m, i)
 Base.setindex!(w::Weights, v, i::Int) = (_setindex!(w.m, Float64(v), i); w)
 Base.iszero(w::Weights) = w.m[2] == 5
+Base.copy(w::T) where {T<:Weights} = T(w)
 
 #=@inbounds=# function _rand(rng::AbstractRNG, m::Memory{UInt64})
 
@@ -807,7 +812,15 @@ end
 # Conform to the AbstractArray API
 Base.size(w::Weights) = (w.m[1],)
 
-# Define convinience constructors TODO: these can be significantly optimized, especially when `x isa Weights`
+for T in [:FixedSizeWeights, :SemiResizableWeights, :ResizableWeights]
+    @eval function $T(x::Weights)
+        m = Memory{UInt64}(undef, length(x.m))
+        unsafe_copyto!(m, 1, x.m, 1, length(x.m))
+        $(Symbol(:_, T))(m)
+    end
+end
+
+# TODO: this can be significantly optimized
 function (::Type{T})(x::AbstractVector{<:Real}) where {T <: Weights}
     w = T(length(x))
     for (i, v) in enumerate(x)
